@@ -146,7 +146,7 @@ test("payments stay closed until onboarding has completed for this back office's
   await expect(page.getByTestId("institution")).toContainText("KTDA Holdings");
   await expect(page.getByText("Payments are closed")).toBeVisible();
   await expect(page.getByLabel("CSV file")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Process" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Submit", exact: true })).toBeDisabled();
   const gate = sent.find((x) => x.path === "/onboarding-status")!;
   expect(gate.query.get("institutionId")).toBe(KTDA);
 });
@@ -208,7 +208,7 @@ test("a run omnichannel says does not exist (another institution's) is an ordina
   await expect(page.getByText(missing).first()).toBeVisible();
 });
 
-test("payment: a PARTIAL run shows its message in amber and checks the file total", async ({ page }) => {
+test("payment: a PARTIAL run shows its message in amber and checks the expected total", async ({ page }) => {
   const message = "1 of 2 rows failed. grower KTDA000002: no KES wallet, onboard first";
   const partial = run({
     flow: "PAYMENT", sourceName: "payments.csv", totalRows: 2, status: "PARTIAL", processedCount: 1, failureCount: 1,
@@ -226,13 +226,13 @@ test("payment: a PARTIAL run shows its message in amber and checks the file tota
   await expect(page.getByText("Farmers have wallets. Payments are open.")).toBeVisible();
   await page.getByLabel("CSV file").setInputFiles(csv("payments.csv", PAYMENT_CSV));
   await expect(page.getByTestId("file-summary")).toContainText("2 rows, total KES 4,000.00");
-  await page.getByRole("button", { name: "Process" }).click();
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
 
   await expect(page.getByText("Partly completed: some rows failed")).toBeVisible();
   await expect(page.getByTestId("run-message")).toHaveText(message);
   await expect(page.getByTestId("run-progress").locator('[data-tone="warning"]')).toHaveText("Partial");
   const panel = page.getByTestId("recon-panel");
-  await expect(panel).toContainText("Does not match the file total");
+  await expect(panel).toContainText("Does not match the expected total");
   await expect(panel).toContainText("KES 1,500.50");
 
   const upload = sent.find((s) => s.method === "POST" && s.path === "/upload")!;
@@ -246,7 +246,7 @@ test("payment: a 409 on upload is shown as omnichannel sent it and nothing is st
   const sent = await stubBulk(page, { onboarded: true, upload: { status: 409, body: envelope(409, refused) } });
   await page.goto("/bulk/payments");
   await page.getByLabel("CSV file").setInputFiles(csv("payments.csv", PAYMENT_CSV));
-  await page.getByRole("button", { name: "Process" }).click();
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: refused })).toBeVisible();
   expect(sent.some((s) => s.path.endsWith("/process"))).toBe(false);
   await expect(page.getByTestId("run-progress")).toHaveCount(0);

@@ -26,15 +26,32 @@ every asset and API URL carries the prefix the ALB routes on.
 omnichannel runs its **dev profile** on UAT: it scopes every operator call to
 the institution in `X-Dev-Institution` and names the actor in `X-Dev-Subject`,
 and needs **both** headers or it falls back to its own default institution. The
-`/admin/omni/` location sets them itself —
-`X-Dev-Institution: 2d878f14-0d76-4aa0-b9d7-ffe4ace1562e` (KTDA) and
-`X-Dev-Subject: ktda-operator` — overriding anything the browser sends, so a
-client can neither choose the institution nor impersonate an actor.
+`/admin/omni/` location sets them itself, overriding anything the browser
+sends:
 
-> **Security (UAT only):** a static subject with no session gate leaves the
-> operator surface open to anyone who can reach `/admin/omni/*`. This is
-> acceptable for the UAT dev environment. The production answer is the secured
-> omnichannel profile with real staff tokens, not a static subject.
+- `X-Dev-Institution: 2d878f14-0d76-4aa0-b9d7-ffe4ace1562e` (KTDA), from the
+  config, so a client cannot choose the institution;
+- `X-Dev-Subject`: the signed-in operator. The back office sends the staff
+  member's subject (`staff:<email>`) as `X-Operator-Subject` on every
+  omnichannel call, and nginx passes it on as `X-Dev-Subject` (the
+  `$ktda_bo_operator` map). Anything not of that shape, or no header (curl, the
+  deploy smoke check), is the shared `ktda-operator`, as before. Payment runs
+  need this: omnichannel's maker-checker refuses a release by the operator who
+  submitted the run, so with one shared subject no run could be released.
+
+`/admin/omni/api/operator/bulk-loads/upload` has its own location: 100 MB body
+(a 600,000-line SAP file is about 85 MB) and 10-minute body, send and read
+timeouts. The rest of `/admin/omni/` keeps 64 MB and 300 s. (Omnichannel itself takes
+bulk files up to 200 MB, `BULK_LOAD_MAX_FILE_SIZE`; this site's 100 MB is the lower limit, and the
+back office refuses a larger file before sending it.)
+
+> **Security (UAT only):** there is no session gate in front of
+> `/admin/omni/*`, and the operator subject is what the browser says it is. It
+> keeps honest operators apart; it does not stop one posing as another. This is
+> acceptable for the UAT dev environment only. Production must use the secured
+> omnichannel profile with real staff tokens (the Cloudflare `functions/omni`
+> proxy and the dev proxy already derive the subject from the verified engine
+> session and ignore `X-Operator-Subject`).
 
 ## Deploy
 

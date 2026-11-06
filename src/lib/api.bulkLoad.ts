@@ -12,15 +12,31 @@
  * safe to send twice. A PAYMENT upload is refused with 409 until an ONBOARDING
  * run has completed for the institution.
  *
+ * PAYMENT also takes KTDA's SAP export (sapPaymentFile.ts) where omnichannel
+ * has the SAP pay file (tokenization-omnichannel #98): it checks the file at
+ * upload, sends only the WALLET lines that pass to the ledger, and reports
+ * what it held (with rule codes) and what is paid by bank or SACCO instead,
+ * with every such line in GET /{runId}/exceptions (CSV). There a PAYMENT run
+ * is SUBMITTED at upload and starts only when a different operator releases
+ * it (POST /{runId}/release; 403 MAKER_CHECKER for the uploader, 409
+ * RELEASE_REQUIRED for /process). The same payment file twice is 409
+ * DUPLICATE_FILE naming the earlier run; a file over the limit is 413
+ * FILE_TOO_LARGE. All read from omnichannel's answers, never assumed: a run
+ * without these fields is an older omnichannel, and the page keeps today's
+ * one-step behaviour.
+ *
  * REGISTRATION and ACTIVATION are the farmer journey's flows
  * (journeyContract.ts): not on every environment yet, and said so plainly
  * where omnichannel refuses one. */
-import { OmniApiError, omniCall } from "./omniApi";
+import { OmniApiError, omniCall, type CsvDownload } from "./omniApi";
+import { formatKes, parseKes } from "./bulk-file";
 import { institutionApi } from "./api.institution";
 import { BULK_COLUMNS, COLUMNS, NEW_FLOWS, NOT_AVAILABLE, notBuiltYet, type BulkFlow, type OnboardingStatus } from "./journeyContract";
 
 export { BULK_COLUMNS, type BulkFlow };
-export type RunStatus = "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
+/** SUBMITTED: a PAYMENT run waiting for a second operator to release it
+ *  (an omnichannel with maker-checker only). */
+export type RunStatus = "SUBMITTED" | "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
 
 export type BulkRun = {
   runId: string;
@@ -46,7 +62,76 @@ export type BulkRun = {
   completedAt: string | null;
   /** A summary with sample failures; always shown on PARTIAL and FAILED. */
   message: string | null;
+
+  /* Maker-checker (PAYMENT, an omnichannel that has it). Absent on an older
+     one: the run then starts on Process, as it always has. */
+  /** Who uploaded it (omnichannel's subject, "staff:<email>"); null for a run without a named uploader. */
+  submittedBy?: string | null;
+  submittedAt?: string | null;
+  /** Who released it; never submittedBy (omnichannel answers 403 MAKER_CHECKER). */
+  releasedBy?: string | null;
+  releasedAt?: string | null;
+  /** SHA-256 of the uploaded bytes: the same file is not paid twice. */
+  fileSha256?: string | null;
+
+  /* A KTDA SAP pay file (fileFormat "SAP"): what omnichannel's checks found at
+     upload. Null for any other file. Amounts in KES. */
+  fileFormat?: string | null;
+  /** The pay period, YYYY-MM. */
+  period?: string | null;
+  /** Lines that pass and are PayTo=WALLET: what the run sends to the wallets. */
+  payableCount?: number | null;
+  payableAmount?: number | null;
+  /** Lines paid by BANK or SACCO: not paid to wallets by this run. */
+  routedCount?: number | null;
+  routedAmount?: number | null;
+  /** Lines held by a check, never paid. */
+  heldCount?: number | null;
+  heldAmount?: number | null;
+  /** Held lines per rule, "E01_MALFORMED=1,E03_DUPLICATE=2". */
+  heldCodes?: string | null;
+  /** Lines paid with a warning (W01 name differs), where omnichannel checks the register. */
+  warningCount?: number | null;
+  /** Checks omnichannel could not run on this file (E05_WALLET_MISMATCH, ...), comma separated. */
+  checksNotRun?: string | null;
+} & LedgerRefusals;
+
+/** What the ledger refused of the lines it was sent (a grower with no wallet,
+ *  say): accounting tokenization-project#52, passed on by omnichannel #98 on
+ *  the run and the reconciliation. Refused lines are also in /exceptions as
+ *  LEDGER_REFUSED. Absent on an older core; the page then reconciles as it
+ *  always has. */
+export type LedgerRefusals = {
+  refusedCount?: number | null;
+  /** KES. */
+  refusedAmount?: number | null;
 };
+
+/** Which rows of a run the ledger refused, posted, or found already applied. */
+export type RowOutcome = "REFUSED" | "POSTED" | "ALREADY_APPLIED";
+
+/** The ledger refused lines and reported them. */
+export const hasRefusals = (r: LedgerRefusals | null | undefined) => r?.refusedCount != null;
+
+/** A payment run from an omnichannel with maker-checker. (Every run there
+ *  carries submittedBy; only a payment run is released.) */
+export const hasApproval = (r: BulkRun) => r.flow === "PAYMENT" && (r.status === "SUBMITTED" || "submittedBy" in r || "releasedBy" in r);
+
+/** The run comes from an omnichannel that reads the SAP pay file. */
+export const readsSapFiles = (r: BulkRun) => "fileFormat" in r;
+
+/** "E01_MALFORMED=1,E03_DUPLICATE=2" as [code, count] pairs; [] for none. */
+export function heldCodesOf(codes: string | null | undefined): [string, number][] {
+  return (codes ?? "").split(",").map((p) => p.trim()).filter(Boolean).map((p) => {
+    const [code, n] = p.split("=");
+    return [code.trim(), Number(n) || 0] as [string, number];
+  });
+}
+
+/** The earlier run a "same file" 409 names, when its message carries the id. */
+export function earlierRunIn(message: string | null | undefined): string | null {
+  return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.exec(message ?? "")?.[0] ?? null;
+}
 
 /** The proof panel. An ONBOARDING run has the same shape with amounts 0. */
 export type BulkReconciliation = {
@@ -68,10 +153,40 @@ export type BulkReconciliation = {
   expectedTotal: number | null;
   /** creditedTotal equals expectedTotal to the cent; null without one. */
   matchesExpected: boolean | null;
-};
+
+  /* A SAP pay file's checks, as on the run (null for any other file). */
+  fileFormat?: string | null;
+  payableCount?: number | null;
+  payableAmount?: number | null;
+  routedCount?: number | null;
+  routedAmount?: number | null;
+  heldCount?: number | null;
+  heldAmount?: number | null;
+  heldCodes?: string | null;
+  warningCount?: number | null;
+  checksNotRun?: string | null;
+  /* With refusedCount/refusedAmount (LedgerRefusals) the core's matchesExpected
+     is posted + already applied + refused == expected; without them, as before. */
+  /** The ledger's match rule in words, when it states one. */
+  matchRule?: string | null;
+} & LedgerRefusals;
 
 /** Payments at or over this need approval, so the backend refuses them here. */
 export const MAX_PAYMENT_KES = 1_000_000;
+
+/** The largest upload this site passes on: the UAT nginx's limit for the
+ *  upload path (deploy/nginx/ktda-bo-admin.conf). Omnichannel's own is larger
+ *  (200 MB). A 600,000-line SAP file is about 85 MB. */
+export const MAX_UPLOAD_MB = 100;
+const TOO_LARGE = `The file is over the ${MAX_UPLOAD_MB} MB this site accepts. Split it by factory and send each part.`;
+
+/** Omnichannel's error codes this page acts on. */
+export const ERR = {
+  MAKER_CHECKER: "MAKER_CHECKER",
+  DUPLICATE_FILE: "DUPLICATE_FILE",
+  RELEASE_REQUIRED: "RELEASE_REQUIRED",
+  FILE_TOO_LARGE: "FILE_TOO_LARGE",
+} as const;
 
 const BASE = "/bulk-loads";
 const runPath = (runId: string) => `${BASE}/${encodeURIComponent(runId)}`;
@@ -94,9 +209,12 @@ export const bulkLoads = {
    *  the caller's own, which the proxy sets from configuration; the browser
    *  never names it. */
   ownInstitution: institutionApi.own,
-  /** Stores the file and returns the RUNNING run (202). 409 for a PAYMENT
-   *  file before onboarding has completed; 400 for an empty file. */
-  upload: (flow: BulkFlow, institutionId: string, file: File, institutionName?: string | null, currency = "KES") => {
+  /** Stores the file and returns the run (202): RUNNING, or SUBMITTED for a
+   *  PAYMENT file where omnichannel has maker-checker. 409 for a PAYMENT file
+   *  before onboarding has completed, or the same file again (DUPLICATE_FILE,
+   *  naming the earlier run); 400 for an empty or unreadable file (BAD_FILE);
+   *  413 over the size limit. `period` (YYYY-MM) is a SAP pay file's period. */
+  upload: (flow: BulkFlow, institutionId: string, file: File, institutionName?: string | null, currency = "KES", period?: string | null) => {
     const form = new FormData();
     form.append("file", file, file.name);
     form.append("flow", flow);
@@ -105,7 +223,14 @@ export const bulkLoads = {
     // first upload, and names it from this field.
     if (institutionName) form.append("institutionName", institutionName);
     form.append("currency", currency);
-    const sent = plainForbidden(omniCall.post<BulkRun>(`${BASE}/upload`, form));
+    if (period) form.append("period", period);
+    const sent = plainForbidden(omniCall.post<BulkRun>(`${BASE}/upload`, form)).catch((e: unknown) => {
+      // nginx answers its own 413 as an HTML page; omnichannel's names its limit.
+      if (e instanceof OmniApiError && e.status === 413) {
+        throw new OmniApiError(413, e.code === ERR.FILE_TOO_LARGE ? `${e.message.replace(/\.?$/, ".")} Split the file by factory and send each part.` : TOO_LARGE, e.field, e.code);
+      }
+      throw e;
+    });
     // A flow this omnichannel does not have yet says so; nothing is retried
     // under another flow.
     return NEW_FLOWS.has(flow)
@@ -115,14 +240,39 @@ export const bulkLoads = {
       })
       : sent;
   },
-  /** Starts the durable job for an uploaded run. */
-  process: (runId: string) => omniCall.post<BulkRun>(`${runPath(runId)}/process`, {}),
+  /** Starts the durable job for an uploaded run. A PAYMENT run where
+   *  omnichannel has maker-checker starts on its release instead (409
+   *  RELEASE_REQUIRED): the run is read again, and waits as it is. */
+  process: (runId: string) => omniCall.post<BulkRun>(`${runPath(runId)}/process`, {}).catch((e: unknown) => {
+    if (e instanceof OmniApiError && e.code === ERR.RELEASE_REQUIRED) return omniCall.get<BulkRun>(runPath(runId));
+    throw e;
+  }),
+  /** A second operator's release of a SUBMITTED payment run, which starts it.
+   *  403 MAKER_CHECKER for the operator who uploaded it; 409 when it is not
+   *  waiting for release. */
+  release: (runId: string) => omniCall.post<BulkRun>(`${runPath(runId)}/release`, {}),
+  /** A SAP pay file's exception report (CSV): every line held, with its rule
+   *  code and reason, or paid by BANK or SACCO. 409 for any other run. */
+  exceptions: (runId: string): Promise<CsvDownload> => omniCall.download(`${runPath(runId)}/exceptions`, `${runId}-exceptions.csv`),
+  /** The run's ledger rows with one outcome, streamed as CSV (lineNo,
+   *  grower_no, payment_ref, amount, outcome, reason): omnichannel's
+   *  GET /bulk-loads/{runId}/rows?outcome= with Accept: text/csv (JSON pages
+   *  otherwise). 404 when the run has not reached the ledger, or the core
+   *  keeps no per-line results; 400 for another outcome. */
+  rows: (runId: string, outcome: RowOutcome): Promise<CsvDownload> =>
+    omniCall.download(`${runPath(runId)}/rows?outcome=${outcome}`, `${runId}-${outcome.toLowerCase()}.csv`, "text/csv").catch((e: unknown) => {
+      if (e instanceof OmniApiError && (e.status === 404 || e.status === 405 || e.status === 501)) {
+        throw new OmniApiError(e.status, "The ledger's line results are not available for this run: it has not reached the ledger, or this environment's accounting keeps counts only. The counts above are still the ledger's.");
+      }
+      throw e;
+    }),
   run: (runId: string) => omniCall.get<BulkRun>(runPath(runId)),
   /** The latest 50 runs, every institution and flow, newest first. */
   recent: () => omniCall.list<BulkRun>(BASE),
-  reconciliation: (runId: string, expectedTotal?: number | null) =>
+  /** `expectedCents` is what the run should have credited, in cents. */
+  reconciliation: (runId: string, expectedCents?: number | null) =>
     omniCall.get<BulkReconciliation>(
-      `${runPath(runId)}/reconciliation${expectedTotal != null ? `?expectedTotal=${expectedTotal.toFixed(2)}` : ""}`,
+      `${runPath(runId)}/reconciliation${expectedCents != null ? `?expectedTotal=${formatKes(expectedCents)}` : ""}`,
     ),
   /** Whether payments (any farmer has a wallet) and step 2 (anyone is
    *  registered) are open for the institution. */
@@ -144,6 +294,11 @@ export type FileSummary = {
   problem: string | null;
   /** Rows the backend will refuse, as a heads-up (amount too large). */
   warnings: string[];
+  /** PAYMENT: what the run should credit, in cents: the rows that pass the
+   *  checks the backend applies (a KES amount above zero and under the
+   *  approval threshold, a payment_ref not already earlier in the file).
+   *  Null for other flows. */
+  expectedCents?: number | null;
 };
 
 export function summariseCsv(flow: BulkFlow, text: string): FileSummary {
@@ -173,12 +328,24 @@ export function summariseCsv(flow: BulkFlow, text: string): FileSummary {
   if (flow !== "PAYMENT") return { rows, total: null, problem: null, warnings: [] };
 
   const at = header.indexOf("amount_kes");
+  const refAt = header.indexOf("payment_ref");
   let cents = 0;
   let parsed = true;
   let tooLarge = 0;
+  // Integer cents, no floats: only rows that will be credited count.
+  let expected = 0;
+  let refused = 0;
+  const refs = new Set<string>();
   for (let i = 1; i < lines.length; i++) {
-    const raw = lines[i].split(",")[at]?.trim() ?? "";
+    const cells = lines[i].split(",");
+    const raw = cells[at]?.trim() ?? "";
+    const ref = cells[refAt]?.trim() ?? "";
     const amount = Number(raw);
+    const exact = parseKes(raw);
+    const repeat = ref !== "" && refs.has(ref);
+    if (ref !== "") refs.add(ref);
+    if (exact !== null && exact > 0 && exact < MAX_PAYMENT_KES * 100 && ref !== "" && !repeat) expected += exact;
+    else refused++;
     if (raw === "" || !Number.isFinite(amount)) {
       parsed = false;
       continue;
@@ -189,5 +356,9 @@ export function summariseCsv(flow: BulkFlow, text: string): FileSummary {
   const warnings = tooLarge
     ? [`${tooLarge.toLocaleString()} row${tooLarge === 1 ? "" : "s"} at or over KES ${MAX_PAYMENT_KES.toLocaleString()} will be refused.`]
     : [];
-  return { rows, total: parsed ? cents / 100 : null, problem: null, warnings };
+  if (refused > tooLarge) {
+    const other = refused - tooLarge;
+    warnings.push(`${other.toLocaleString()} row${other === 1 ? "" : "s"} without a KES amount above zero or a payment_ref of their own will not be credited.`);
+  }
+  return { rows, total: parsed ? cents / 100 : null, problem: null, warnings, expectedCents: expected };
 }

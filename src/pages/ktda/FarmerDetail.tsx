@@ -8,7 +8,7 @@ import { farmersApi } from "../../lib/api.farmers";
 import { farmerWallet } from "../../lib/farmerWallet";
 import { OmniApiError } from "../../lib/omniApi";
 import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
-import { NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, type Farmer, type FarmerState } from "../../lib/journeyContract";
+import { NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, type Farmer } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
 
@@ -18,7 +18,6 @@ import { DetailItem } from "../../components/tokenconsole/DetailItem";
    farmers). Read-only. Where this environment's omnichannel has no wallet
    read yet, the wallet part says so and the record still shows. */
 
-const STATE_TONE: Record<FarmerState, "neutral" | "info" | "success"> = { REGISTERED: "neutral", ACTIVATED: "info", FUNDED: "success" };
 const SIZE = 20;
 
 type Profile = { found: true; farmer: Farmer } | { found: false };
@@ -89,7 +88,7 @@ export default function FarmerDetail() {
         eyebrow={`Farmer · ${farmer.growerNo}`}
         title={farmer.fullName ?? farmer.growerNo}
         subtitle={[farmer.factory, farmer.registeredAt && `registered ${calendarDate(farmer.registeredAt)}`].filter(Boolean).join(" · ") || undefined}
-        actions={<Badge tone={STATE_TONE[farmer.status]}>{STATE_LABEL[farmer.status] ?? farmer.status}</Badge>}
+        actions={<Badge tone={STATE_TONE[farmer.status] ?? "neutral"}>{STATE_LABEL[farmer.status] ?? farmer.status}</Badge>}
       />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -178,7 +177,7 @@ export default function FarmerDetail() {
             <DetailItem term="Grower number"><span className="font-mono">{farmer.growerNo}</span></DetailItem>
             <DetailItem term="Phone"><span className="tabular">{farmer.phone ?? "—"}</span></DetailItem>
             <DetailItem term="Factory">{farmer.factory ?? "—"}</DetailItem>
-            <DetailItem term="Stage">{STATE_LABEL[farmer.status] ?? farmer.status}<span className="block text-[12px] text-text-soft">{STATE_MEANS[farmer.status]}</span></DetailItem>
+            <DetailItem term="Stage">{STATE_LABEL[farmer.status] ?? farmer.status}<span className="block text-[12px] text-text-soft">{STATE_MEANS[farmer.status]}</span>{farmer.status === "CLASH" && farmer.clashReason && <span className="mt-1 block text-[12px] text-warning" data-testid="clash-reason">{farmer.clashReason}</span>}</DetailItem>
             <DetailItem term="Registered">{farmer.registeredAt ? calendarDate(farmer.registeredAt) : "—"}</DetailItem>
             <DetailItem term="Activated">{farmer.activatedAt ? calendarDate(farmer.activatedAt) : "—"}</DetailItem>
             <DetailItem term="Last funded">{farmer.lastFundedAt ? calendarDate(farmer.lastFundedAt) : "—"}</DetailItem>

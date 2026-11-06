@@ -7,7 +7,7 @@ import { useAction } from "../../lib/tokenConsole/useAction";
 import { calendarDate, units } from "../../lib/tokenConsole/format";
 import { farmersApi, type Registered } from "../../lib/api.farmers";
 import {
-  FARMER_STATES, NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, SUMMARY_KEY,
+  ALL_FARMER_STATES, FARMER_STATES, NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, SUMMARY_KEY,
   type Farmer, type FarmerState, type RegisterFarmer,
 } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
@@ -22,8 +22,7 @@ import { SourceError } from "../../components/tokenconsole/ConsoleTable";
    environment lacks the endpoints the page says so. */
 
 const SIZE = 20;
-const STATE_TONE: Record<FarmerState, "neutral" | "info" | "success"> = { REGISTERED: "neutral", ACTIVATED: "info", FUNDED: "success" };
-const isState = (v: string | null): v is FarmerState => !!v && (FARMER_STATES as string[]).includes(v);
+const isState = (v: string | null): v is FarmerState => !!v && (ALL_FARMER_STATES as string[]).includes(v);
 
 const NotAvailable = () => (
   <div data-testid="not-available">
@@ -94,7 +93,9 @@ export default function FarmersByStage() {
             onChange={(k) => set({ state: isState(k) ? k : null })}
             tabs={[
               { key: "ALL", label: "All", count: counts?.total },
-              ...FARMER_STATES.map((s) => ({ key: s, label: STATE_LABEL[s], count: counts?.[SUMMARY_KEY[s]] })),
+              // The Clash tab only where omnichannel counts clashes (or one was asked for).
+              ...(counts?.clash !== undefined || state === "CLASH" ? ALL_FARMER_STATES : FARMER_STATES)
+                .map((s) => ({ key: s, label: STATE_LABEL[s], count: counts?.[SUMMARY_KEY[s]] })),
             ]}
           />
           <FilterBar>
@@ -133,7 +134,10 @@ export default function FarmersByStage() {
                       <td className="px-3 py-2">{f.fullName ?? "—"}</td>
                       <td className="px-3 py-2 tabular">{f.phone ?? "—"}</td>
                       <td className="px-3 py-2">{f.factory ?? "—"}</td>
-                      <td className="px-3 py-2"><Badge tone={STATE_TONE[f.status]}>{STATE_LABEL[f.status] ?? f.status}</Badge></td>
+                      <td className="px-3 py-2">
+                        <Badge tone={STATE_TONE[f.status] ?? "neutral"}>{STATE_LABEL[f.status] ?? f.status}</Badge>
+                        {f.status === "CLASH" && f.clashReason && <span className="mt-1 block max-w-xs text-[12px] text-warning" data-testid="clash-reason">{f.clashReason}</span>}
+                      </td>
                       <td className="px-3 py-2 tabular text-text-soft">{since(f)}</td>
                     </tr>
                   ))}

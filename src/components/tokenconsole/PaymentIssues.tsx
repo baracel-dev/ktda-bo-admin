@@ -9,7 +9,10 @@ import { ActionModal } from "./ActionModal";
 
 /* The payments that need a person (BRD FR-STL-05), from omnichannel, oldest
    first: a payout the provider refused after the money left the product, and
-   a reported bank transfer still unmatched after the wait. Each row offers
+   a reported bank transfer still unmatched after the wait, and a payout the
+   gateway took and never answered for (PAYOUT_UNCONFIRMED: it may or may not
+   have been paid, so staff check with the gateway and confirm it sent or not
+   sent; it is never retried first, which could pay twice). Each row offers
    only what omnichannel accepts for its kind; it still answers 409 when
    someone else got there first, and that message is shown as it came. */
 
@@ -20,7 +23,7 @@ export type IssuesSource = {
   reload: () => Promise<void>;
 };
 
-type Action = "retry" | "resolve" | "match" | "unmatched";
+type Action = "retry" | "resolve" | "match" | "unmatched" | "confirmSent" | "confirmNotSent";
 type Pending = { action: Action; issue: PaymentIssue };
 
 const ACTIONS_FOR: Record<string, Action[]> = {
@@ -28,17 +31,25 @@ const ACTIONS_FOR: Record<string, Action[]> = {
   // A transfer is never resolved: it is credited (match) or failed (unmatched),
   // so it cannot leave the queue while the money could still arrive.
   TRANSFER_WAITING: ["match", "unmatched"],
+  // No Retry: the gateway may have paid it, and a retry is a new payment.
+  // Omnichannel refuses one (409) until it is confirmed not sent.
+  PAYOUT_UNCONFIRMED: ["confirmSent", "confirmNotSent"],
 };
 
-const KIND_LABEL: Record<string, string> = { PAYOUT_FAILED: "Payout failed", TRANSFER_WAITING: "Transfer waiting" };
+const KIND_LABEL: Record<string, string> = { PAYOUT_FAILED: "Payout failed", TRANSFER_WAITING: "Transfer waiting", PAYOUT_UNCONFIRMED: "Payout unconfirmed" };
+const KIND_TONE: Record<string, "danger" | "warning" | "info"> = { PAYOUT_FAILED: "danger", TRANSFER_WAITING: "warning", PAYOUT_UNCONFIRMED: "info" };
 
-const ACTION_LABEL: Record<Action, string> = { retry: "Retry", resolve: "Resolve", match: "Match", unmatched: "Unmatched" };
+const ACTION_LABEL: Record<Action, string> = {
+  retry: "Retry", resolve: "Resolve", match: "Match", unmatched: "Unmatched", confirmSent: "Confirm sent", confirmNotSent: "Confirm not sent",
+};
 
 /** Required text per action, and its limit (the service's). Retry takes none. */
 const TEXT: Record<Exclude<Action, "retry">, { label: string; hint: string; max: number; missing: string }> = {
   resolve: { label: "Note", hint: "Required. How the customer was paid instead.", max: 300, missing: "Say how it was dealt with." },
   match: { label: "Bank reference", hint: "Required. From the bank statement line the money arrived on.", max: 64, missing: "Enter the bank's reference." },
   unmatched: { label: "Reason", hint: "Required. The customer reads it.", max: 200, missing: "Say why it is marked as never received." },
+  confirmSent: { label: "Gateway receipt", hint: "Required. The receipt the gateway gave for this payout.", max: 64, missing: "Enter the gateway's receipt." },
+  confirmNotSent: { label: "Note", hint: "Required. How the gateway confirmed it was not paid (who, when). Kept in the audit trail.", max: 300, missing: "Say how you confirmed it was not paid." },
 };
 
 function describe(p: Pending): { title: string; body: string; submit: string; done: string; tone: "primary" | "danger" } {
@@ -68,6 +79,18 @@ function describe(p: Pending): { title: string; body: string; submit: string; do
         body: "It fails with your reason, which the customer reads. Nothing is credited.",
         submit: "Mark unmatched", done: "Marked as never received.", tone: "danger",
       };
+    case "confirmSent":
+      return {
+        title: "Confirm this payout was sent?",
+        body: `Only once the gateway has told you it paid ${amount} to ${p.issue.payment.phone ?? "the customer"}. The payout becomes SENT with the gateway's receipt and the customer is told it was sent. Nothing is sent again.`,
+        submit: "Confirm sent", done: "Confirmed sent. It has left the queue.", tone: "primary",
+      };
+    case "confirmNotSent":
+      return {
+        title: "Confirm this payout was not sent?",
+        body: `Only once the gateway has told you it did not pay ${amount}. The payout fails and comes back on this queue as a failed payout, to retry or resolve. Nothing is sent now.`,
+        submit: "Confirm not sent", done: "Confirmed not sent. It is now a failed payout to retry or resolve.", tone: "danger",
+      };
   }
 }
 
@@ -78,6 +101,8 @@ function run(p: Pending, text: string) {
     case "resolve": return omniApi.resolvePayment(id, text);
     case "match": return omniApi.matchTransfer(id, text);
     case "unmatched": return omniApi.markTransferUnmatched(id, text);
+    case "confirmSent": return omniApi.confirmPayoutSent(id, text);
+    case "confirmNotSent": return omniApi.confirmPayoutNotSent(id, text);
   }
 }
 
@@ -155,7 +180,7 @@ export function PaymentIssues({ source }: { source: IssuesSource }) {
           <GlassPanel className="p-1" sheen={false}>
             <DataTable<Row>
               rows={rows}
-              emptyLabel="No refused payouts and no transfers waiting"
+              emptyLabel="No refused or unconfirmed payouts and no transfers waiting"
               columns={[
                 { key: "when", header: "When", className: "whitespace-nowrap", render: (r) => <span className="tabular text-xs text-text-soft">{dateTime(r.payment.createdAt)}</span> },
                 { key: "customer", header: "Customer", render: (r) => (
@@ -164,7 +189,7 @@ export function PaymentIssues({ source }: { source: IssuesSource }) {
                   </Link>
                 ) },
                 { key: "kind", header: "Kind", className: "whitespace-nowrap", render: (r) => (
-                  <Badge tone={r.kind === "PAYOUT_FAILED" ? "danger" : "warning"}>{KIND_LABEL[r.kind] ?? r.kind}</Badge>
+                  <Badge tone={KIND_TONE[r.kind] ?? "warning"}>{KIND_LABEL[r.kind] ?? r.kind}</Badge>
                 ) },
                 { key: "amount", header: "Amount", className: "tabular text-right whitespace-nowrap", render: (r) => (
                   <div>
@@ -172,11 +197,18 @@ export function PaymentIssues({ source }: { source: IssuesSource }) {
                     {r.payment.reference && <div title={r.payment.reference}><Code>{r.payment.reference.length > 24 ? shortId(r.payment.reference) : r.payment.reference}</Code></div>}
                   </div>
                 ) },
-                { key: "why", header: "Why", className: "min-w-[240px]", render: (r) => <span className="text-[13px] text-text-soft">{r.why}</span> },
+                { key: "why", header: "Why", className: "min-w-[240px]", render: (r) => (
+                  <div className="text-[13px] text-text-soft">
+                    {r.kind === "PAYOUT_UNCONFIRMED" && (
+                      <p className="mb-1 font-medium text-text" data-testid={`unconfirmed-${r.payment.id}`}>May or may not have been paid: check with the gateway first.</p>
+                    )}
+                    <span>{r.why}</span>
+                  </div>
+                ) },
                 { key: "actions", header: "", className: "whitespace-nowrap text-right", render: (r) => (
                   <div className="flex flex-wrap justify-end gap-1.5" data-testid={`issue-actions-${r.payment.id}`}>
                     {(ACTIONS_FOR[r.kind] ?? []).map((a) => (
-                      <Button key={a} size="sm" variant={a === "retry" || a === "match" ? "primary" : "outline"} disabled={act.pending} onClick={() => start({ action: a, issue: r })}>
+                      <Button key={a} size="sm" variant={a === "retry" || a === "match" || a === "confirmSent" ? "primary" : "outline"} disabled={act.pending} onClick={() => start({ action: a, issue: r })}>
                         {ACTION_LABEL[a]}
                       </Button>
                     ))}
@@ -188,7 +220,10 @@ export function PaymentIssues({ source }: { source: IssuesSource }) {
           <p className="mt-6 max-w-3xl text-xs leading-relaxed text-text-faint">
             A refused payout means the money has left the product and the customer has not received it. Retry sends it again to the
             same phone; Resolve takes it off the queue when it was paid another way. A transfer waits here once it has gone unmatched
-            past omnichannel's wait, until it is matched or marked as never received. Omnichannel lists at most 500 of each kind.
+            past omnichannel's wait, until it is matched or marked as never received. An unconfirmed payout is one the gateway took
+            and never answered for: it may or may not have been paid, so check with the gateway first, then confirm it sent (with the
+            receipt) or not sent (it then becomes a failed payout to retry or resolve); it is never retried before that, which could pay
+            twice. Omnichannel lists at most 500 of each kind.
             Every action is recorded against you.
           </p>
         </>
@@ -211,7 +246,7 @@ export function PaymentIssues({ source }: { source: IssuesSource }) {
         >
           {field && (
             <Field label={field.label} required hint={`${field.hint} ${text.length}/${field.max}`}>
-              {pending.action === "resolve"
+              {pending.action === "resolve" || pending.action === "confirmNotSent"
                 ? <Textarea rows={3} value={text} maxLength={field.max} onChange={(e) => setText(e.target.value)} />
                 : <Input value={text} maxLength={field.max} onChange={(e) => setText(e.target.value)} />}
             </Field>

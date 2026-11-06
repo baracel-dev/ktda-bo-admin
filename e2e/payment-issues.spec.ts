@@ -22,8 +22,8 @@ const ISSUES = [
 type Write = { path: string; body: unknown; subject?: string };
 
 /** The queue over `issues`; `answer` decides each write (default: handled, leaves the queue). */
-async function stubIssues(page: Page, answer?: (req: Request) => { status: number; body: unknown } | null) {
-  const state = { issues: [...ISSUES], reads: 0, pages: new Set<string>(), writes: [] as Write[], truncated: false };
+async function stubIssues(page: Page, answer?: (req: Request) => { status: number; body: unknown } | null, issues = ISSUES) {
+  const state = { issues: [...issues], reads: 0, pages: new Set<string>(), writes: [] as Write[], truncated: false };
   // Paged as omnichannel pages it: `page` from 1, `size`, totals in headers.
   await page.route(/\/omni\/api\/operator\/payments\/issues(\?.*)?$/, (route) => {
     state.reads++;
@@ -43,9 +43,9 @@ async function stubIssues(page: Page, answer?: (req: Request) => { status: numbe
       body: JSON.stringify(items),
     });
   });
-  await page.route(/\/omni\/api\/operator\/payments\/[^/]+\/(retry|resolve|match|unmatched)$/, (route) => {
+  await page.route(/\/omni\/api\/operator\/payments\/[^/]+\/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)$/, (route) => {
     const req = route.request();
-    const [, id, action] = /payments\/([^/]+)\/(\w+)$/.exec(new URL(req.url()).pathname)!;
+    const [, id, action] = /payments\/([^/]+)\/([\w-]+)$/.exec(new URL(req.url()).pathname)!;
     state.writes.push({ path: `${id}/${action}`, body: req.postDataJSON(), subject: req.headers()["x-dev-subject"] });
     const custom = answer?.(req);
     if (custom) return json(route, custom.body, custom.status);
@@ -171,4 +171,76 @@ test("a queue cut at omnichannel's cap says the count is a minimum", async ({ pa
   await expect(page.getByText("This list is cut short")).toBeVisible();
   await expect(page.getByText("At least 2 payments need a person")).toBeVisible();
   await expect(page.getByRole("tab", { name: /Issues/ })).toContainText("cut");
+});
+
+/* PAYOUT_UNCONFIRMED (omnichannel #98): a payout the gateway took and never
+   answered for. It may or may not have been paid, so it is confirmed sent
+   (with the gateway's receipt) or not sent (with a note) after checking with
+   the gateway; it is never retried first. */
+const UNCONFIRMED = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const UNCONFIRMED_ISSUE = {
+  profileId: ALICE, kind: "PAYOUT_UNCONFIRMED",
+  why: "Sent to the payment gateway 45 minutes ago and no answer since. Check with the gateway, then confirm it sent (with the receipt) or not sent; do not retry it before.",
+  payment: payment(UNCONFIRMED, { status: "PENDING", reference: "WD-9", providerRef: "PGW-REQ-77", failureReason: null, promptInApp: false }),
+};
+
+test("an unconfirmed payout says it may or may not have been paid, offers the two confirmations and no Retry", async ({ page }) => {
+  await stubIssues(page, undefined, [...ISSUES, UNCONFIRMED_ISSUE]);
+  await openIssues(page);
+  const actions = page.getByTestId(`issue-actions-${UNCONFIRMED}`);
+  await expect(actions.getByRole("button")).toHaveText(["Confirm sent", "Confirm not sent"]);
+  await expect(actions.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await expect(page.getByTestId(`unconfirmed-${UNCONFIRMED}`).filter({ visible: true })).toHaveText("May or may not have been paid: check with the gateway first.");
+  await expect(page.getByText("Payout unconfirmed").filter({ visible: true })).toBeVisible();
+  await expect(page.getByText("do not retry it before.").filter({ visible: true })).toBeVisible();
+});
+
+test("confirm sent needs the gateway's receipt, is confirmed in a dialog, and the queue is read again", async ({ page }) => {
+  const state = await stubIssues(page, undefined, [UNCONFIRMED_ISSUE]);
+  await openIssues(page);
+  await page.getByTestId(`issue-actions-${UNCONFIRMED}`).getByRole("button", { name: "Confirm sent" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Only once the gateway has told you it paid KES 1,000.00 to +254700000000");
+  const submit = dialog.getByRole("button", { name: "Confirm sent" });
+  await expect(submit).toBeDisabled();
+  await dialog.getByLabel(/Gateway receipt/).fill("  ");
+  await expect(submit).toBeDisabled();
+  await dialog.getByLabel(/Gateway receipt/).fill("UJUO9B9NYK");
+  await submit.click();
+  await expect(dialog).toBeHidden();
+  expect(state.writes).toEqual([{ path: `${UNCONFIRMED}/confirm-sent`, body: { receipt: "UJUO9B9NYK" }, subject: undefined }]);
+  await expect(page.getByTestId(`issue-actions-${UNCONFIRMED}`)).toHaveCount(0);
+  expect(state.reads).toBeGreaterThan(1);
+});
+
+test("confirm not sent needs a note; the payout comes back as a failed one to retry or resolve", async ({ page }) => {
+  const state = await stubIssues(page, undefined, [UNCONFIRMED_ISSUE]);
+  // Once confirmed not sent, omnichannel lists it again as a PAYOUT_FAILED.
+  await page.route(/\/omni\/api\/operator\/payments\/[^/]+\/confirm-not-sent$/, (route) => {
+    state.writes.push({ path: `${UNCONFIRMED}/confirm-not-sent`, body: route.request().postDataJSON() });
+    state.issues = [{ ...UNCONFIRMED_ISSUE, kind: "PAYOUT_FAILED", why: "The payout was not made: confirmed not sent with the gateway.", payment: { ...UNCONFIRMED_ISSUE.payment, status: "FAILED" } }];
+    return json(route, { ...UNCONFIRMED_ISSUE.payment, status: "FAILED" });
+  });
+  await openIssues(page);
+  await page.getByTestId(`issue-actions-${UNCONFIRMED}`).getByRole("button", { name: "Confirm not sent" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("comes back on this queue as a failed payout");
+  const submit = dialog.getByRole("button", { name: "Confirm not sent" });
+  await expect(submit).toBeDisabled();
+  await dialog.getByLabel(/Note/).fill("PGW support: no transaction under this key");
+  await submit.click();
+  await expect(dialog).toBeHidden();
+  expect(state.writes).toEqual([{ path: `${UNCONFIRMED}/confirm-not-sent`, body: { note: "PGW support: no transaction under this key" } }]);
+  await expect(page.getByTestId(`issue-actions-${UNCONFIRMED}`).getByRole("button")).toHaveText(["Retry", "Resolve"]);
+});
+
+test("a confirmation refused because the payout is no longer pending (409) is shown as it came", async ({ page }) => {
+  const message = "This payout is no longer pending: the gateway answered (SENT).";
+  await stubIssues(page, () => ({ status: 409, body: envelope(409, message) }), [UNCONFIRMED_ISSUE]);
+  await openIssues(page);
+  await page.getByTestId(`issue-actions-${UNCONFIRMED}`).getByRole("button", { name: "Confirm sent" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Gateway receipt/).fill("UJUO9B9NYK");
+  await dialog.getByRole("button", { name: "Confirm sent" }).click();
+  await expect(dialog).toContainText(message);
 });

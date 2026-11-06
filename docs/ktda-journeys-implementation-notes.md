@@ -51,7 +51,8 @@ separately from the wallet**:
 ### How the back office reaches the backend (UAT)
 - The box's nginx proxies the back office's calls over localhost (no CORS / no cert trouble):
   - `/admin/omni/*` → omnichannel `:8087` — **the proxy injects `X-Dev-Institution` (KTDA) and
-    `X-Dev-Subject` (a static operator) itself**; never send institution/subject from the browser.
+    `X-Dev-Subject` itself**; never send institution/subject from the browser. The subject is the
+    signed-in operator the app names in `X-Operator-Subject` (else the shared `ktda-operator`).
   - `/admin/tok/*` → the accounting engine `:8086/api/*` (sign-in / session).
 - So from your code, call `/<base>/omni/api/operator/...` and `/<base>/tok/api/...`. The institution
   scoping is handled for you by the proxy.
@@ -225,6 +226,55 @@ GET /api/operator/bulk-loads/onboarding-status?institutionId=<uuid>  → 200 { "
 
 **CSV formats:** ONBOARDING `grower_no,national_id,full_name,msisdn` · PAYMENT
 `grower_no,amount_kes,payment_ref` (header row required; `payment_ref` is the idempotency key).
+
+### SAP payment file and maker-checker (journey 4) — tokenization-omnichannel PR #98 (not merged yet)
+
+The back office follows #98's contract (BulkLoadDtos, BulkLoadOperatorController, ErrorCode) and
+feature-detects it from the answers, so an omnichannel without it keeps today's behaviour.
+
+```
+POST /bulk-loads/upload          + period=YYYY-MM (optional; else read from the file name, KTDA_GL_2026_10_….csv)
+     PAYMENT → 202 status SUBMITTED   · 409 DUPLICATE_FILE (message names the earlier run)
+     400 BAD_FILE (header, or a SAP file with no period) · 413 FILE_TOO_LARGE (omnichannel 200 MB; UAT nginx 100 MB)
+POST /bulk-loads/{runId}/process → PAYMENT: 409 RELEASE_REQUIRED (other flows start here as before)
+POST /bulk-loads/{runId}/release → 200 RUNNING · 403 MAKER_CHECKER (the uploader) · 409 not waiting for release
+GET  /bulk-loads/{runId}/exceptions → text/csv line_no,grower_no,name,pay_to,amount_kes,code,reason (SAP runs; 409 otherwise)
+```
+
+- **Run fields** (`BulkRunResponse`): `submittedBy, submittedAt, releasedBy, releasedAt, fileSha256, fileFormat`
+  (`"SAP"` or null), `period`, `payableCount/payableAmount` (WALLET lines that pass: what the run credits),
+  `routedCount/routedAmount` (BANK/SACCO lines: not paid to wallets by this run), `heldCount/heldAmount`,
+  `heldCodes` (`"E01_MALFORMED=1,E03_DUPLICATE=2"`). The reconciliation carries the same SAP fields.
+  A run with held lines ends `PARTIAL`; one with no wallet line ends `FAILED` at upload.
+- **Browser check:** the SAP file is checked first with the KTDA back office's rules (`src/lib/file-rules.ts` +
+  `bulk-file.ts`, copied verbatim from `baracel/ktda` apps/backoffice-web; run in a worker by
+  `src/lib/sapPaymentFile.ts`), the same six rules omnichannel applies (E01, E03, E04, E07, E08, E09; neither
+  checks the register). It shows to wallets / bank-SACCO / held, counts by rule, an exception CSV in
+  omnichannel's columns, the pay period (from the name, or a month picker), and an optional `<file>.control.json`
+  (lines, total, SHA-256; a mismatch blocks Submit). Files over 100 MB are refused before upload.
+- **Expected total** sent to the reconciliation = `payableAmount` from omnichannel, or the browser's own
+  wallet-line sum (integer cents) where omnichannel sends none (the plain file: rows that will be credited).
+- **Maker-checker:** the uploader sees Release disabled with the reason; a different signed-in operator releases.
+  A SAP file on an omnichannel whose run has no `fileFormat` is stored but not started.
+- **Ledger refusals** (accounting tokenization-project#52, passed on by omnichannel #98 commit 9ffefef):
+  `refusedCount`/`refusedAmount` on the run and the reconciliation, and `matchRule` on the reconciliation; the
+  core's `matchesExpected` is posted + already applied + refused == expected. The result shows refused lines as
+  their own total, apart from held and bank/SACCO, with a "Refused lines" download from
+  `GET …/bulk-loads/{runId}/rows?outcome=REFUSED` with `Accept: text/csv`
+  (`lineNo,grower_no,payment_ref,amount,outcome,reason`; JSON pages of ≤100 otherwise; 404 when the run has not
+  reached the ledger or the core keeps counts only). Refused lines are also in `/exceptions` as `LEDGER_REFUSED`.
+  Without the fields the page reconciles as before. omnichannel also sends `warningCount` (W01, paid) and
+  `checksNotRun` (e.g. E05), shown under its check of the file.
+- **Payment issues:** `GET /payments/issues` has the kind `PAYOUT_UNCONFIRMED` (a payout still PENDING with no
+  gateway answer after `PAYMENT_UNCONFIRMED_AFTER`, 30 min). Token console → Transactions → Issues shows it as
+  "may or may not have been paid: check with the gateway first" with Confirm sent (`POST /payments/{id}/confirm-sent`
+  `{receipt}` → SENT) and Confirm not sent (`/confirm-not-sent` `{note}` → FAILED, then a PAYOUT_FAILED to retry or
+  resolve), each behind a confirmation dialog with the text required; no Retry (omnichannel refuses one, 409).
+- **Farmers:** state `CLASH` (phone already another farmer's login) with `clashReason`; `/farmers/summary` has
+  `clash`. The Farmers page has a Clash tab where omnichannel counts them; a registration run's result and the
+  journey page link to it.
+- **Who acts:** every omnichannel call carries `X-Operator-Subject: staff:<email>`; the UAT nginx forwards it
+  as `X-Dev-Subject` (see deploy/README.md). UAT-only; production uses real staff tokens.
 
 ### Single-farmer register (journey 1) — PROPOSED, not built
 ```

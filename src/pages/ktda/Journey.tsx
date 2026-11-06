@@ -89,6 +89,12 @@ export default function Journey() {
             ))}
           </div>
         )}
+        {farmers.data?.available && (farmers.data.data.clash ?? 0) > 0 && (
+          <NotePanel tone="warning" className="mt-3" title={`${units(farmers.data.data.clash!)} held as a clash`}>
+            Their phone is already another farmer&apos;s login, so they have no login and cannot be activated or paid.{" "}
+            <Link className="font-medium text-primary-600 hover:text-primary-700" to="/farmers?state=CLASH">See who and why</Link>.
+          </NotePanel>
+        )}
       </GlassPanel>
     </div>
   );

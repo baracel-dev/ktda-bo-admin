@@ -282,7 +282,7 @@ export default function TokenConsoleTransactions() {
         <PageHeader
           eyebrow="Baracel Unyt"
           title="Transactions"
-          subtitle="Payments that need a person: payouts the provider refused and bank transfers still unmatched. Oldest first."
+          subtitle="Payments that need a person: payouts the provider refused, payouts the gateway never answered for, and bank transfers still unmatched. Oldest first."
           actions={<RefreshButton loading={issues.loading} onClick={() => void issues.reload()} />}
         />
         {tabs}

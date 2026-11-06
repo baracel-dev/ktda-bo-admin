@@ -12,7 +12,11 @@
      ACTIVATED   wallet open and linked, not paid yet. In the demo a CSV stands
                  in for the farmers' own onboarding: the app does not open a
                  wallet yet, so the file is the only way here today.
-     FUNDED      the wallet has been credited at least once. */
+     FUNDED      the wallet has been credited at least once.
+   and, off the way:
+     CLASH       on the register, but the phone given is already another
+                 farmer's login, so no login was made (clashReason says so).
+                 Held until the phone is put right; never activated or paid. */
 
 /** The bulk-loads flow values. ONBOARDING stays as the one-step flow. */
 export type BulkFlow = "ONBOARDING" | "REGISTRATION" | "ACTIVATION" | "PAYMENT";
@@ -103,17 +107,25 @@ export const stepFor = (flow: BulkFlow) => JOURNEY.find((s) => s.flow === flow) 
 
 /* ---- Farmers (omnichannel, scoped to this back office's institution) ---- */
 
-export type FarmerState = "REGISTERED" | "ACTIVATED" | "FUNDED";
+export type FarmerState = "REGISTERED" | "ACTIVATED" | "FUNDED" | "CLASH";
+/** The three steps of the way, in order. CLASH is not one of them. */
 export const FARMER_STATES: FarmerState[] = ["REGISTERED", "ACTIVATED", "FUNDED"];
+/** Every state a farmer can be in, the held one last. */
+export const ALL_FARMER_STATES: FarmerState[] = [...FARMER_STATES, "CLASH"];
 export const STATE_LABEL: Record<FarmerState, string> = {
   REGISTERED: "Registered",
   ACTIVATED: "Activated",
   FUNDED: "Funded",
+  CLASH: "Clash",
 };
 export const STATE_MEANS: Record<FarmerState, string> = {
   REGISTERED: "On the register, still has to onboard: no wallet yet",
   ACTIVATED: "Wallet open, not paid yet",
   FUNDED: "Wallet credited at least once",
+  CLASH: "Held: the phone given is already another farmer's login, so no login was made",
+};
+export const STATE_TONE: Record<FarmerState, "neutral" | "info" | "success" | "warning"> = {
+  REGISTERED: "neutral", ACTIVATED: "info", FUNDED: "success", CLASH: "warning",
 };
 
 /** One farmer. The national ID is never returned. */
@@ -130,12 +142,15 @@ export type Farmer = {
   /** The farmer's omnichannel profile, once they have one (the Customer
    *  desk's id); null before. Older omnichannel leaves it out. */
   customerId?: string | null;
+  /** Why a CLASH farmer is held; null otherwise. Older omnichannel leaves it out. */
+  clashReason?: string | null;
 };
 
 /** GET /farmers/summary: over the whole institution, not a filtered list.
- *  activated leaves out the funded, so the three add up to total. */
-export type FarmersSummary = { registered: number; activated: number; funded: number; total: number };
-export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded" };
+ *  activated leaves out the funded, so the counts add up to total. `clash`
+ *  (farmers held as CLASH) is missing on an older omnichannel. */
+export type FarmersSummary = { registered: number; activated: number; funded: number; total: number; clash?: number };
+export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
 
 /** POST /farmers. Only growerNo, fullName and phone are required; phone may
  *  be 07…, 2547… or +2547…. 201 when this call registered the farmer, 200

@@ -5,6 +5,7 @@ import type { MeResponse } from "./tokenConsole/types.gen";
 import type { SelfServiceSignupRequest, SignupResponse } from "./tokenConsole/spec-deviations";
 import { clearSharedLists } from "./tokenConsole/sharedList";
 import { clearLiveCache } from "./api.live";
+import { setOmniOperator } from "./omniApi";
 
 /** Sign-in against the tokenization (accounting) service — the same staff
  * accounts tokenization-web used. The session is the service's HttpOnly
@@ -62,7 +63,13 @@ function toUser(me: MeResponse): StaffUser {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<StaffUser | null>(null);
+  const [user, setUserState] = useState<StaffUser | null>(null);
+  // Omnichannel calls name the signed-in staff member (omniApi.ts). Set
+  // before the render that shows the pages, so their first calls carry it.
+  const setUser = useCallback((u: StaffUser | null) => {
+    setOmniOperator(u?.email);
+    setUserState(u);
+  }, []);
   const [isLoading, setIsLoading] = useState(true);
   // Session checks still in flight. The service answers an unauthenticated
   // request with a new anonymous session cookie, so one of these landing
@@ -92,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setUser]);
 
   // The server can end a session at any time (expiry, or an admin disabling
   // the account). Any 401 from a data call means exactly that, so drop to the
@@ -101,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onUnauthenticated = () => setUser(null);
     window.addEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
     return () => window.removeEventListener(UNAUTHENTICATED_EVENT, onUnauthenticated);
-  }, []);
+  }, [setUser]);
 
   const login = useCallback(async (email: string, password: string) => {
     await Promise.allSettled([...pendingChecks.current]);
@@ -109,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Login answers {admin, email} only; /me carries the name and roles.
     const me = await tokApi.get<MeResponse>("/auth/me");
     setUser(toUser(me));
-  }, []);
+  }, [setUser]);
 
   // Creates a PENDING account — no session. The caller says so.
   const signup = useCallback((req: SelfServiceSignupRequest) => tokApi.post<SignupResponse>("/auth/signup", req), []);
@@ -124,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearLiveCache();
       setUser(null);
     }
-  }, []);
+  }, [setUser]);
 
   // Omnichannel's audit names the staff member who acted (see omniApi.ts).
 

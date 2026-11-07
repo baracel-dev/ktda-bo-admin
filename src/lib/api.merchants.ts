@@ -6,7 +6,7 @@ import { OmniApiError, omniCall, type Page } from "./omniApi";
 import type { Maybe } from "./api.farmers";
 import {
   MERCHANTS_PATH, MERCHANTS_SUMMARY_PATH, PAGE_MAX, merchantPath,
-  type KybStatus, type Merchant, type MerchantDecision, type MerchantDocumentType, type MerchantsSummary, type RegisterMerchant,
+  type KybStatus, type Merchant, type MerchantDecision, type MerchantDocumentType, type MerchantsSummary, type RegisterMerchant, type UpdateMerchant,
 } from "./merchantsAgentsContract";
 
 export const MERCHANTS_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not have merchants.";
@@ -54,6 +54,7 @@ export const merchantsApi = {
     }
   },
   register: (body: RegisterMerchant) => orUnavailable(omniCall.post<Merchant>(MERCHANTS_PATH, body), MERCHANTS_NOT_AVAILABLE),
+  update: (reference: string, body: UpdateMerchant) => orUnavailable(omniCall.put<Merchant>(merchantPath(reference), body), MERCHANTS_NOT_AVAILABLE),
   markDocument: (reference: string, type: MerchantDocumentType, documentRef?: string) =>
     orUnavailable(omniCall.post<Merchant>(`${merchantPath(reference)}/documents`, { type, ...(documentRef ? { reference: documentRef } : {}) }), MERCHANTS_NOT_AVAILABLE),
   checkBrs: (reference: string) => orUnavailable(omniCall.post<Merchant>(`${merchantPath(reference)}/brs-check`, {}), MERCHANTS_NOT_AVAILABLE),

@@ -29,9 +29,10 @@ async function stub(page: Page, opts: { list?: Obj[] | Answer; summary?: Answer;
     const req = route.request();
     const url = new URL(req.url());
     const path = url.pathname.replace(/^\/omni\/api\/operator/, "");
-    const body = req.method() === "POST" ? (req.postDataJSON() as Obj) : null;
+    const write = req.method() === "POST" || req.method() === "PUT";
+    const body = write ? (req.postDataJSON() as Obj) : null;
     sent.push({ method: req.method(), path, query: url.searchParams, body });
-    if (req.method() === "POST") {
+    if (write) {
       const a = opts.post?.(path, body!) ?? { status: path === "/merchants" ? 201 : 200, body: current };
       if (a.status < 300 && a.body && typeof a.body === "object") current = a.body as Obj;
       return json(route, a.body, a.status);
@@ -138,6 +139,7 @@ test("someone who may not decide KYC sees the merchant but no decision", async (
   await expect(page.getByTestId("merchant-drawer")).toContainText("Deciding KYB needs the Admin or Compliance role.");
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Check again" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit details" })).toHaveCount(0);
 });
 
 test("a reference that is not this institution's", async ({ page }) => {
@@ -174,6 +176,70 @@ test("register a merchant: the body follows the contract and the drawer opens on
     tillNo: "512399", registrationNo: "PVT-XY0000", settlement: { bank: "Test Bank", account: "0011223344" }, commissionRate: 0.005,
     vouchers: { accepts: true, categories: ["FERTILISER"] },
   });
+});
+
+test("accepting vouchers needs a category; all six are offered", async ({ page }) => {
+  await stub(page);
+  await page.goto("/merchants");
+  await page.getByRole("button", { name: "Register merchant" }).click();
+  for (const [l, v] of [["Business name", "X"], ["Registration no.", "PVT-1"], ["Till number", "512345"], ["Town", "T"], ["County", "C"], ["Owner name", "O"], ["Owner phone", "0700000303"], ["Settlement bank", "B"], ["Settlement account", "1"]]) {
+    await page.getByLabel(l, { exact: true }).fill(v);
+  }
+  await page.getByText("Accepts input vouchers").click();
+  for (const c of ["Fertiliser", "Seedlings", "Agrochemicals", "Farm tools", "Animal feed", "Fuel"]) await expect(page.getByText(c, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("form-problem")).toContainText("Choose at least one voucher category");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Register", exact: true })).toBeDisabled();
+  await page.getByText("Farm tools", { exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Register", exact: true })).toBeEnabled();
+});
+
+test("edit details: PUT without the registration number, the account only when typed", async ({ page }) => {
+  const sent = await stub(page);
+  await page.goto("/merchants?focus=M-10200");
+  await page.getByRole("button", { name: "Edit details" }).click();
+  const form = page.getByTestId("merchant-form");
+  await expect(form).toContainText("The registration number (PVT-AB12CD) cannot change here.");
+  await expect(form.getByLabel("Registration no.", { exact: true })).toHaveCount(0);
+  await expect(form.getByLabel("Business name", { exact: true })).toHaveValue("Kericho Agrovet");
+  await expect(form.getByLabel("Settlement account", { exact: true })).toHaveValue("");
+  await expect(form.getByLabel("Settlement account", { exact: true })).toHaveAttribute("placeholder", "****1234");
+  await expect(form.getByLabel("Commission % per sale (optional)", { exact: true })).toHaveValue("0.5");
+  await form.getByLabel("Till number", { exact: true }).fill("512350");
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Kericho Agrovet: details saved.")).toBeVisible();
+  const put = sent.find((s) => s.method === "PUT")!;
+  expect(put.path).toBe("/merchants/M-10200");
+  expect(put.body).toEqual({
+    name: "Kericho Agrovet", type: "AGRO_DEALER", town: "Kericho", county: "Kericho", ownerName: "Test Owner", ownerPhone: "+254700000301",
+    tillNo: "512350", commissionRate: 0.005, vouchers: { accepts: true, categories: ["FERTILISER", "SEEDLINGS"] }, settlement: { bank: "Test Bank" },
+  });
+});
+
+test("edit details with a new account typed sends it", async ({ page }) => {
+  const sent = await stub(page);
+  await page.goto("/merchants?focus=M-10200");
+  await page.getByRole("button", { name: "Edit details" }).click();
+  await page.getByTestId("merchant-form").getByLabel("Settlement account", { exact: true }).fill("9988776655");
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("details saved.")).toBeVisible();
+  expect((sent.find((s) => s.method === "PUT")!.body as Obj).settlement).toEqual({ bank: "Test Bank", account: "9988776655" });
+});
+
+test("a rejected merchant has no Edit", async ({ page }) => {
+  await stub(page, {
+    one: merchant("M-10200", { kyb: { status: "REJECTED", decidedAt: "2026-11-07T10:00:00Z", decidedBy: "officer@ktda.test", note: "No licence." } }),
+  });
+  await page.goto("/merchants?focus=M-10200");
+  await expect(page.getByTestId("merchant-drawer")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit details" })).toHaveCount(0);
+});
+
+test("an edit omnichannel refuses shows why", async ({ page }) => {
+  await stub(page, { post: () => ({ status: 409, body: envelope(409, "This merchant is rejected", "MERCHANT_REJECTED") }) });
+  await page.goto("/merchants?focus=M-10200");
+  await page.getByRole("button", { name: "Edit details" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("This merchant is rejected")).toBeVisible();
 });
 
 test("a till already taken shows omnichannel's message", async ({ page }) => {

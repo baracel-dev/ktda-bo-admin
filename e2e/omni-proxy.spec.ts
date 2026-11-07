@@ -134,7 +134,10 @@ test("the farmer journey's reads, a farmer's wallet and the single register pass
   for (const path of ["merchants", "merchants/M-10200/documents", "merchants/M-10200/brs-check", "merchants/M-10200/decision", "agents", "agents/A-0042/suspend", "agents/A-0042/reinstate", "agents/A-0042/float/top-up", "agents/A-0042/activities"]) {
     expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
   }
-  for (const [method, path] of [["POST", "merchants/M-10200"], ["GET", "merchants/M-10200/decision"], ["PUT", "merchants/M-10200"], ["DELETE", "agents/A-0042"], ["POST", "agents/A-0042/float"], ["GET", "agents/A-0042/x"]]) {
+  const put = await call("/omni/api/operator/merchants/M-10200", { method: "PUT" });
+  expect(put.res.status).toBe(200);
+  expect(put.upstream?.url).toContain("/api/operator/merchants/M-10200");
+  for (const [method, path] of [["POST", "merchants/M-10200"], ["GET", "merchants/M-10200/decision"], ["PUT", "merchants"], ["PUT", "merchants/M-10200/decision"], ["PUT", "agents/A-0042"], ["DELETE", "agents/A-0042"], ["POST", "agents/A-0042/float"], ["GET", "agents/A-0042/x"]]) {
     expect((await call(`/omni/api/operator/${path}`, { method })).res.status, `${method} ${path}`).toBe(404);
   }
   // One farmer is a read, not something to post to.

@@ -165,7 +165,7 @@ export default function Merchants() {
 
       {focus && <MerchantDrawer key={focus} reference={focus} onClose={() => set({ focus: null })} onChanged={refresh} />}
       {registering && (
-        <RegisterMerchantModal
+        <MerchantFormModal
           onClose={() => setRegistering(false)}
           onDone={(m) => { setRegistering(false); refresh(); set({ focus: m.reference }); }}
         />
@@ -181,6 +181,7 @@ function MerchantDrawer({ reference, onClose, onChanged }: { reference: string; 
   const merchant = useAsyncData(() => merchantsApi.one(reference));
   const m = merchant.data;
   const [deciding, setDeciding] = useState<MerchantDecision["decision"] | null>(null);
+  const [editing, setEditing] = useState(false);
   const act = useAction(async (fn: () => Promise<Merchant>) => fn());
   const apply = async (fn: () => Promise<Merchant>, ok: string) => {
     const after = await act.run(fn);
@@ -208,6 +209,7 @@ function MerchantDrawer({ reference, onClose, onChanged }: { reference: string; 
               <div className="flex items-center gap-2 text-[12.5px] text-text-soft">
                 <Badge tone={KYB_TONE[m.kyb.status] ?? "neutral"}>{KYB_LABEL[m.kyb.status] ?? m.kyb.status}</Badge>
                 <span>Joined {calendarDate(m.joinedAt)}</span>
+                {mayDecide && m.kyb.status !== "REJECTED" && <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit details</Button>}
               </div>
             </div>
 
@@ -286,6 +288,13 @@ function MerchantDrawer({ reference, onClose, onChanged }: { reference: string; 
               )}
             </div>
 
+            {editing && (
+              <MerchantFormModal
+                merchant={m}
+                onClose={() => setEditing(false)}
+                onDone={(after) => { setEditing(false); merchant.setData(after); onChanged(); toast.push(`${after.name}: details saved.`); }}
+              />
+            )}
             {deciding && (
               <DecisionModal
                 name={m.name}
@@ -356,64 +365,93 @@ type Form = {
 const BLANK: Form = { name: "", type: "AGRO_DEALER", town: "", county: "", ownerName: "", ownerPhone: "", tillNo: "", registrationNo: "", bank: "", account: "", commission: "", accepts: false, categories: [] };
 const PHONE = /^\+?\d[\d ]{8,14}$/;
 
-function RegisterMerchantModal({ onClose, onDone }: { onClose: () => void; onDone: (m: Merchant) => void }) {
-  const [f, setF] = useState<Form>(BLANK);
-  const act = useAction((body: RegisterMerchant) => merchantsApi.register(body));
-  const text = (k: keyof Form, labelText: string, extra: Record<string, string> = {}) => (
-    <Field label={labelText}>
+/** A merchant as the form edits it. The account starts empty: the page only
+ *  ever sees it masked. */
+const formOf = (m: Merchant): Form => ({
+  name: m.name, type: m.type, town: m.town ?? "", county: m.county ?? "", ownerName: m.ownerName ?? "", ownerPhone: m.ownerPhone ?? "",
+  tillNo: m.tillNo ?? "", registrationNo: m.brs.registrationNo, bank: m.settlement.bank ?? "", account: "",
+  commission: m.commissionRate != null ? String(Number((m.commissionRate * 100).toFixed(4))) : "",
+  accepts: m.vouchers.accepts, categories: m.vouchers.categories,
+});
+
+/** Register a merchant, or (given `merchant`) change their details: the
+ *  register body without the registration number, the account only when a
+ *  new one is typed. */
+function MerchantFormModal({ merchant, onClose, onDone }: { merchant?: Merchant; onClose: () => void; onDone: (m: Merchant) => void }) {
+  const editing = !!merchant;
+  const [f, setF] = useState<Form>(merchant ? formOf(merchant) : BLANK);
+  const rate = f.commission.trim() ? Number(f.commission) / 100 : undefined;
+  const act = useAction(async () => {
+    const common = {
+      name: f.name.trim(), type: f.type, town: f.town.trim(), county: f.county.trim(), ownerName: f.ownerName.trim(),
+      ownerPhone: f.ownerPhone.trim(), tillNo: f.tillNo.trim(),
+      ...(rate !== undefined ? { commissionRate: Number(rate.toFixed(4)) } : {}),
+      vouchers: { accepts: f.accepts, categories: f.accepts ? f.categories : [] },
+    };
+    if (merchant) {
+      return merchantsApi.update(merchant.reference, {
+        ...common, settlement: { bank: f.bank.trim(), ...(f.account.trim() ? { account: f.account.trim() } : {}) },
+      });
+    }
+    return merchantsApi.register({ ...common, registrationNo: f.registrationNo.trim(), settlement: { bank: f.bank.trim(), account: f.account.trim() } } satisfies RegisterMerchant);
+  });
+  const text = (k: keyof Form, labelText: string, extra: Record<string, string> = {}, hint?: string) => (
+    <Field label={labelText} hint={hint}>
       <Input aria-label={labelText} value={f[k] as string} onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))} {...extra} />
     </Field>
   );
-  const rate = f.commission.trim() ? Number(f.commission) / 100 : undefined;
-  const required: (keyof Form)[] = ["name", "town", "county", "ownerName", "ownerPhone", "tillNo", "registrationNo", "bank", "account"];
+  const required: (keyof Form)[] = ["name", "town", "county", "ownerName", "ownerPhone", "tillNo", "bank", ...(editing ? [] : (["registrationNo", "account"] as (keyof Form)[]))];
   const problem = required.some((k) => !(f[k] as string).trim()) ? "Every field but the commission and vouchers is needed."
     : !PHONE.test(f.ownerPhone.trim()) ? "The owner's phone does not look like a phone number."
     : rate !== undefined && (!Number.isFinite(rate) || rate < 0 || rate > 0.2) ? "Commission is a percentage, 0 to 20."
+    : f.accepts && f.categories.length === 0 ? "Choose at least one voucher category, or untick accepting vouchers."
     : null;
-  const touched = Object.entries(f).some(([k, v]) => typeof v === "string" && k !== "type" && v.trim() !== "");
+  const touched = editing || Object.entries(f).some(([k, v]) => typeof v === "string" && k !== "type" && v.trim() !== "");
   const submit = async () => {
-    const m = await act.run({
-      name: f.name.trim(), type: f.type, town: f.town.trim(), county: f.county.trim(), ownerName: f.ownerName.trim(),
-      ownerPhone: f.ownerPhone.trim(), tillNo: f.tillNo.trim(), registrationNo: f.registrationNo.trim(),
-      settlement: { bank: f.bank.trim(), account: f.account.trim() },
-      ...(rate !== undefined ? { commissionRate: Number(rate.toFixed(4)) } : {}),
-      vouchers: { accepts: f.accepts, categories: f.accepts ? f.categories : [] },
-    });
+    const m = await act.run();
     if (m) onDone(m);
   };
   return (
     <Modal
       open
       onClose={act.pending ? () => undefined : onClose}
-      title="Register merchant"
+      title={editing ? `Edit ${merchant.name}` : "Register merchant"}
       footer={
         <>
           <Button variant="outline" disabled={act.pending} onClick={onClose}>Cancel</Button>
-          <Button disabled={!!problem || act.pending} onClick={() => void submit()}>{act.pending ? "Registering…" : "Register"}</Button>
+          <Button disabled={!!problem || act.pending} onClick={() => void submit()}>
+            {act.pending ? "Saving…" : editing ? "Save" : "Register"}
+          </Button>
         </>
       }
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <p className="text-[12.5px] text-text-soft sm:col-span-2">The registration number is checked against the Business Registration Service straight away. The merchant starts in review.</p>
+      <div className="grid gap-3 sm:grid-cols-2" data-testid="merchant-form">
+        <p className="text-[12.5px] text-text-soft sm:col-span-2">
+          {editing
+            ? `The registration number (${merchant.brs.registrationNo}) cannot change here.`
+            : "The registration number is checked against the Business Registration Service straight away. The merchant starts in review."}
+        </p>
         {text("name", "Business name")}
         <Field label="Type">
           <Select aria-label="Type" value={f.type} onChange={(e) => setF((x) => ({ ...x, type: e.target.value as MerchantType }))}>
             {MERCHANT_TYPES.map((t) => <option key={t} value={t}>{MERCHANT_TYPE_LABEL[t]}</option>)}
           </Select>
         </Field>
-        {text("registrationNo", "Registration no.")}
+        {!editing && text("registrationNo", "Registration no.")}
         {text("tillNo", "Till number")}
         {text("town", "Town")}
         {text("county", "County")}
         {text("ownerName", "Owner name")}
         {text("ownerPhone", "Owner phone", { inputMode: "tel", placeholder: "07XXXXXXXX" })}
         {text("bank", "Settlement bank")}
-        {text("account", "Settlement account")}
+        {editing
+          ? text("account", "Settlement account", { placeholder: merchant.settlement.accountMasked ?? "" }, "Leave empty to keep the current account; only its last digits are shown here.")
+          : text("account", "Settlement account")}
         {text("commission", "Commission % per sale (optional)", { inputMode: "decimal", placeholder: "0.50" })}
         <div className="sm:col-span-2">
           <Checkbox checked={f.accepts} onChange={(v) => setF((x) => ({ ...x, accepts: v }))}>Accepts input vouchers</Checkbox>
           {f.accepts && (
-            <div className="mt-2 flex flex-wrap gap-4 pl-7">
+            <div className="mt-2 grid grid-cols-2 gap-2 pl-7 sm:grid-cols-3">
               {VOUCHER_CATEGORIES.map((c) => (
                 <Checkbox key={c} checked={f.categories.includes(c)} onChange={(v) => setF((x) => ({ ...x, categories: v ? [...x.categories, c] : x.categories.filter((y) => y !== c) }))}>
                   {categoryWords(c)}

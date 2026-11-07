@@ -34,8 +34,8 @@ export const DOCUMENT_LABEL: Record<MerchantDocumentType, string> = {
   BANK_LETTER: "Bank letter for settlement account",
 };
 
-/** The categories the contract names; omnichannel may take more. */
-export const VOUCHER_CATEGORIES = ["FERTILISER", "SEEDLINGS"] as const;
+/** The fixed list. Accepting vouchers with no category is a 400. */
+export const VOUCHER_CATEGORIES = ["FERTILISER", "SEEDLINGS", "AGROCHEMICALS", "FARM_TOOLS", "ANIMAL_FEED", "FUEL"] as const;
 
 export type Merchant = {
   reference: string;
@@ -83,6 +83,12 @@ export type RegisterMerchant = {
   vouchers?: { accepts: boolean; categories: string[] };
 };
 
+/** PUT /merchants/{ref}: the register body without registrationNo. A changed
+ *  till keeps the uniqueness rule (409 MERCHANT_TILL_TAKEN); a rejected
+ *  merchant is refused (409 MERCHANT_REJECTED). The settlement account is
+ *  sent only when staff type a new one: the page only ever sees it masked. */
+export type UpdateMerchant = Omit<RegisterMerchant, "registrationNo" | "settlement"> & { settlement: { bank: string; account?: string } };
+
 /** POST /merchants/{ref}/decision. APPROVED needs BRS VERIFIED and all four
  *  documents (409 MERCHANT_NOT_READY says what is missing); a decided
  *  merchant refuses another (409 MERCHANT_DECIDED), except revoking an
@@ -117,6 +123,8 @@ export type Agent = {
   updatedAt: string | null;
 };
 
+/** `active` is every agent not suspended, the low-float ones included;
+ *  `lowFloat` is that subset. */
 export type AgentsSummary = { active: number; lowFloat: number; suspended: number; onboardedThisMonth: number; commissionThisMonth: number };
 
 /** POST /agents (201). agentNo is the institution's own if given (409
@@ -138,6 +146,8 @@ export type AgentActivity = {
   id: string; type: AgentActivityType; amount: number | null; commission: number | null; growerNo: string | null;
   reference: string; floatAfter: number | null; occurredAt: string; recordedBy: string | null;
 };
+/** POST float/top-up answers 200 with the AgentView; POST activities 201
+ *  with the activity row. */
 export type TopUp = { amount: number; reference: string };
 
 export const AGENTS_PATH = "/agents";

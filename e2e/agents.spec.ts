@@ -55,11 +55,14 @@ test("tiles, tabs with counts, and the float bar red when low", async ({ page })
   await page.goto("/agents");
   await expect(page.getByRole("heading", { name: "Agents", level: 1 })).toBeVisible();
   const tiles = page.getByTestId("agent-tiles");
+  // `active` already counts the low-float agents.
+  await expect(tiles).toContainText("Active agents5");
+  await expect(tiles).toContainText("2 of them low on float");
   await expect(tiles).toContainText("Low on float2");
   await expect(tiles).toContainText("Below 25% of their limit");
   await expect(tiles).toContainText("Onboarded this month40");
   await expect(tiles).toContainText("KES 3,200.00");
-  for (const [name, n] of [["All", 8], ["Low float", 2], ["Suspended", 1]] as const) {
+  for (const [name, n] of [["All", 6], ["Low float", 2], ["Suspended", 1]] as const) {
     await expect(page.getByRole("tab", { name: new RegExp(`^${name}\\s*${n}$`) })).toBeVisible();
   }
   const rows = page.getByTestId("agents-table").locator("tbody tr");

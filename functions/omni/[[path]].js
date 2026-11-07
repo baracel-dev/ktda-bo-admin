@@ -47,6 +47,8 @@ const REF = "[A-Za-z0-9._~%-]+";
 // not offer, and omnichannel refuses them for an institution without them.
 const ALLOWED = {
   POST: new RegExp(`^/omni/api/operator/(link-codes|notifications|investors/${UUID}/kyc-status|onboarding/documents/${UUID}/review|onboarding/applications/rescreen|customers/${UUID}/(suspend|reinstate|close)|customers/interventions/${UUID}/(approve|reject)|payments/${UUID}/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)|reporting/alerts/${UUID}/(assign|close)|reporting/runs/(snapshot|surveillance)|bulk-loads/upload|bulk-loads/${UUID}/(process|release)|farmers|farmers/kyc/sweep|farmers/${GROWER}/kyc/(start|decision)|merchants|merchants/${REF}/(documents|brs-check|decision)|agents|agents/${REF}/(suspend|reinstate|float/top-up|activities))$`),
+  // Updating a merchant's details.
+  PUT: new RegExp(`^/omni/api/operator/merchants/${REF}$`),
   GET: new RegExp(`^/omni/api/operator/(onboarding/(applications|applications/screening-hits|documents|documents/${UUID}/content)|support/tickets|customers|customers/interventions|customers/${UUID}(/(timeline|messages|activity|interventions))?|transactions|transactions/summary|payments/issues|reporting/reports/(transactions|holdings|token-supply|suspicious-activity)\\.csv|reporting/alerts|reporting/alerts/${UUID}|reporting/runs|bulk-loads|bulk-loads/onboarding-status|bulk-loads/${UUID}(/reconciliation|/exceptions|/rows)?|institutions|institution/settings|farmers|farmers/summary|farmers/${GROWER}(/wallet(/movements)?)?|farmers/by-customer/${UUID}|farmers/kyc/sweep|merchants|merchants/summary|merchants/${REF}|agents|agents/summary|agents/${REF}(/activities)?)$`),
 };
 const FORWARDED = ["accept", "content-type", "authorization"];
@@ -90,7 +92,7 @@ export async function onRequest({ request, env }) {
     upstream = await fetch(target, {
       method: request.method,
       headers,
-      body: request.method === "POST" ? request.body : undefined,
+      body: request.method === "POST" || request.method === "PUT" ? request.body : undefined,
       redirect: "manual",
     });
   } catch {

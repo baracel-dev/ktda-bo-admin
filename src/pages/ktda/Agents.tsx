@@ -118,7 +118,7 @@ export default function Agents() {
         <>
           {summary.error && <SourceError what="the agent counts" error={summary.error} onRetry={summary.reload} />}
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="agent-tiles">
-            <StatCard label="Active agents" value={s ? units(s.active + s.lowFloat) : "—"} hint={s ? `${units(s.lowFloat)} of them low on float` : undefined} />
+            <StatCard label="Active agents" value={s ? units(s.active) : "—"} hint={s ? `${units(s.lowFloat)} of them low on float` : undefined} />
             <StatCard label="Low on float" value={s ? units(s.lowFloat) : "—"} hint="Below 25% of their limit" />
             <StatCard label="Onboarded this month" value={s ? units(s.onboardedThisMonth) : "—"} hint="Assisted sign-ups" />
             <StatCard label="Commission this month" value={s ? money(s.commissionThisMonth, "KES") : "—"} />
@@ -128,7 +128,7 @@ export default function Agents() {
             active={tab}
             onChange={(k) => isTab(k) && set({ status: k })}
             tabs={[
-              { key: "ALL", label: "All", count: s ? s.active + s.lowFloat + s.suspended : undefined },
+              { key: "ALL", label: "All", count: s ? s.active + s.suspended : undefined },
               { key: "LOW_FLOAT", label: "Low float", count: s?.lowFloat },
               { key: "SUSPENDED", label: "Suspended", count: s?.suspended },
             ]}

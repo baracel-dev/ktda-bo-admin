@@ -3,7 +3,7 @@ import {
   UserCheck, Inbox, ListChecks, CalendarCheck2, Activity, Radar, Wallet, ArrowLeftRight, MessageSquareWarning,
   GitCompareArrows, TriangleAlert, FileBarChart2, BookOpenCheck, Scale, CalendarClock, HandCoins, Landmark,
   FileSpreadsheet, FileSearch, ShieldAlert, FolderSearch, ShieldCheck, Siren, Settings, SlidersHorizontal, ServerCog,
-  UserCog, ScrollText, Percent, KeyRound, ToggleLeft, Building2, Route as RouteIcon,
+  UserCog, ScrollText, Percent, KeyRound, ToggleLeft, Building2, Store, Route as RouteIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { NavItem } from "../ui";
@@ -37,6 +37,7 @@ const KTDA_NAV: NavDef[] = [
   { label: "Screening", to: "/screening", section: "People", icon: Radar },
 
   { label: "Transactions", to: "/token-console/transactions", section: "Money", icon: ArrowLeftRight },
+  { label: "Merchants", to: "/merchants", section: "Money", icon: Store },
   { label: "Disputes", to: "/complaints", section: "Money", icon: MessageSquareWarning },
   { label: "Reconciliation", to: "/token-console/reconciliation", section: "Money", icon: GitCompareArrows },
   { label: "Fraud alerts", to: "/fraud-alerts", section: "Money", icon: TriangleAlert },

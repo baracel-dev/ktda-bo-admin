@@ -1,14 +1,15 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { UserPlus } from "lucide-react";
-import { Badge, Button, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, Tabs } from "../../ui";
+import { Badge, Button, Card, DonutChart, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, Tabs } from "../../ui";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { useAction } from "../../lib/tokenConsole/useAction";
 import { calendarDate, units } from "../../lib/tokenConsole/format";
 import { farmersApi, type Registered } from "../../lib/api.farmers";
 import {
-  ALL_FARMER_STATES, FARMER_STATES, KYC_LABEL, KYC_STATUSES, KYC_TONE, NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, SUMMARY_KEY,
-  type Farmer, type FarmerState, type KycStatus, type RegisterFarmer,
+  ALL_FARMER_STATES, BY_CHANNEL_KEYS, CHANNEL_LABEL, FARMER_STATES, KYC_LABEL, KYC_STATUSES, KYC_TONE, NOT_AVAILABLE, ONBOARDING_CHANNELS,
+  STATE_LABEL, STATE_MEANS, STATE_TONE, SUMMARY_KEY,
+  type ByChannel, type Farmer, type FarmerState, type KycStatus, type OnboardingChannel, type RegisterFarmer,
 } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 
@@ -25,6 +26,8 @@ const SIZE = 20;
 const isState = (v: string | null): v is FarmerState => !!v && (ALL_FARMER_STATES as string[]).includes(v);
 const isKyc = (v: string | null): v is KycStatus => !!v && (KYC_STATUSES as string[]).includes(v);
 const KYC_OPTIONS = KYC_STATUSES.map((k) => ({ value: k, label: `KYC: ${KYC_LABEL[k].toLowerCase()}` }));
+const isChannel = (v: string | null): v is OnboardingChannel => !!v && (ONBOARDING_CHANNELS as string[]).includes(v);
+const CHANNEL_OPTIONS = ONBOARDING_CHANNELS.map((c) => ({ value: c, label: `Joined via ${CHANNEL_LABEL[c].toLowerCase()}` }));
 
 const NotAvailable = () => (
   <div data-testid="not-available">
@@ -36,17 +39,19 @@ export default function FarmersByStage() {
   const [params, setParams] = useSearchParams();
   const state = isState(params.get("state")) ? (params.get("state") as FarmerState) : null;
   const kyc = isKyc(params.get("kyc")) ? (params.get("kyc") as KycStatus) : null;
+  const channel = isChannel(params.get("channel")) ? (params.get("channel") as OnboardingChannel) : null;
   const q = params.get("q") ?? "";
   const [typed, setTyped] = useState(q);
   const page = Math.max(1, Number(params.get("page")) || 1);
   const [registering, setRegistering] = useState(false);
   const navigate = useNavigate();
 
-  const set = (next: { state?: FarmerState | null; kyc?: KycStatus | null; q?: string; page?: number }) => {
+  const set = (next: { state?: FarmerState | null; kyc?: KycStatus | null; channel?: OnboardingChannel | null; q?: string; page?: number }) => {
     const p = new URLSearchParams(params);
     const put = (k: string, v: string | null | undefined) => (v ? p.set(k, v) : p.delete(k));
     if ("state" in next) put("state", next.state ?? null);
     if ("kyc" in next) put("kyc", next.kyc ?? null);
+    if ("channel" in next) put("channel", next.channel ?? null);
     if ("q" in next) put("q", next.q?.trim() || null);
     put("page", next.page && next.page > 1 ? String(next.page) : null);
     setParams(p, { replace: true });
@@ -60,9 +65,9 @@ export default function FarmersByStage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typed]);
 
-  const list = useAsyncData(() => farmersApi.list({ state, kyc, q, page, size: SIZE }));
+  const list = useAsyncData(() => farmersApi.list({ state, kyc, channel, q, page, size: SIZE }));
   const { reload } = list;
-  useEffect(() => { void reload(); }, [state, kyc, q, page, reload]);
+  useEffect(() => { void reload(); }, [state, kyc, channel, q, page, reload]);
   const summary = useAsyncData(() => farmersApi.summary());
 
   const result = list.data;
@@ -91,6 +96,7 @@ export default function FarmersByStage() {
       ) : (
         <>
           {summary.error && <SourceError what="the counts per stage" error={summary.error} onRetry={summary.reload} />}
+          {counts?.byChannel && <HowFarmersJoined byChannel={counts.byChannel} />}
           <Tabs
             className="mb-4"
             active={state ?? "ALL"}
@@ -105,6 +111,7 @@ export default function FarmersByStage() {
           <FilterBar>
             <SearchInput value={typed} onChange={setTyped} placeholder="Grower number, name or phone" className="w-72" />
             <SelectFilter value={kyc ?? "all"} onChange={(v) => set({ kyc: isKyc(v) ? v : null })} options={KYC_OPTIONS} allLabel="Any KYC" />
+            <SelectFilter value={channel ?? "all"} onChange={(v) => set({ channel: isChannel(v) ? v : null })} options={CHANNEL_OPTIONS} allLabel="Any way of joining" />
             {state && <span className="text-[12.5px] text-text-soft">{STATE_MEANS[state]}.</span>}
             {(counts?.kycPending ?? 0) > 0 && kyc !== "PENDING" && (
               <button type="button" className="text-[12.5px] font-medium text-primary-600 hover:text-primary-700" data-testid="kyc-pending" onClick={() => set({ kyc: "PENDING" })}>
@@ -115,7 +122,7 @@ export default function FarmersByStage() {
 
           {!data ? <Skeleton className="h-48" /> : data.items.length === 0 ? (
             <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="farmers-empty">
-              {q || state || kyc ? "No farmer matches." : "No farmers registered yet. Run step 1 of the farmer journey, or register one."}
+              {q || state || kyc || channel ? "No farmer matches." : "No farmers registered yet. Run step 1 of the farmer journey, or register one."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-border">
@@ -128,6 +135,7 @@ export default function FarmersByStage() {
                     <th className="px-3 py-2 font-medium">Factory</th>
                     <th className="px-3 py-2 font-medium">Stage</th>
                     <th className="px-3 py-2 font-medium">KYC</th>
+                    <th className="px-3 py-2 font-medium">Joined via</th>
                     <th className="px-3 py-2 font-medium">Since</th>
                   </tr>
                 </thead>
@@ -151,6 +159,11 @@ export default function FarmersByStage() {
                       </td>
                       <td className="px-3 py-2" data-testid="kyc-cell">
                         {f.kyc ? <Badge tone={KYC_TONE[f.kyc.status] ?? "neutral"}>{KYC_LABEL[f.kyc.status] ?? f.kyc.status}</Badge> : <span className="text-text-faint">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-[12.5px]" data-testid="channel-cell">
+                        {f.onboarding?.channel
+                          ? <>{CHANNEL_LABEL[f.onboarding.channel] ?? f.onboarding.channel}{f.onboarding.agentNo && <span className="block text-[12px] text-text-soft">{f.onboarding.agentNo}</span>}</>
+                          : <span className="text-text-faint">—</span>}
                       </td>
                       <td className="px-3 py-2 tabular text-text-soft">{since(f)}</td>
                     </tr>
@@ -182,6 +195,24 @@ export default function FarmersByStage() {
 }
 
 const farmerHref = (growerNo: string) => `/farmers/${encodeURIComponent(growerNo)}`;
+
+/** "How farmers joined" (prototype 3.1 has it as a dashboard donut; the
+ *  dashboard here is still demo data, so it sits with the live list). */
+function HowFarmersJoined({ byChannel }: { byChannel: ByChannel }) {
+  const total = BY_CHANNEL_KEYS.reduce((s, k) => s + (byChannel[k.key] ?? 0), 0);
+  if (total === 0) return null;
+  return (
+    <Card className="mb-4 p-4" data-testid="how-joined">
+      <h2 className="mb-3 text-sm font-semibold text-text">How farmers joined</h2>
+      <DonutChart
+        centerLabel="Farmers"
+        centerValue={units(total)}
+        formatValue={(v) => `${units(v)} (${Math.round((v / total) * 100)}%)`}
+        segments={BY_CHANNEL_KEYS.map((k, i) => ({ label: k.label, value: byChannel[k.key] ?? 0, colorIndex: i }))}
+      />
+    </Card>
+  );
+}
 
 /** When the farmer reached the stage they are at. */
 function since(f: Farmer): string {

@@ -7,10 +7,11 @@ import { OmniApiError, omniCall, type Page } from "./omniApi";
 import {
   FARMERS_MAX_SIZE, FARMERS_PATH, FARMERS_SUMMARY_PATH, NOT_AVAILABLE, farmerByCustomerPath, farmerPath, notBuiltYet,
   KYC_SWEEP_PATH, KYC_SWEEP_RUNNING,
-  type Farmer, type FarmerState, type FarmersSummary, type KycDecisionBody, type KycStatus, type KycSweep, type RegisterFarmer,
+  type AssistedOnboarding, type Farmer, type FarmerDocument, type FarmerPhotoType, type FarmerState, type FarmersSummary, type KycDecisionBody,
+  type KycStatus, type KycSweep, type OnboardingChannel, type RegisterFarmer,
 } from "./journeyContract";
 
-export type FarmersQuery = { state?: FarmerState | null; kyc?: KycStatus | null; q?: string; page?: number; size?: number };
+export type FarmersQuery = { state?: FarmerState | null; kyc?: KycStatus | null; channel?: OnboardingChannel | null; q?: string; page?: number; size?: number };
 export type Maybe<T> = { available: true; data: T } | { available: false };
 /** A register call's answer: `created` false when the farmer was already
  *  registered with the same phone (200 rather than 201). */
@@ -39,10 +40,11 @@ async function maybe<T>(call: Promise<T>): Promise<Maybe<T>> {
 
 export const farmersApi = {
   /** One page, newest registered first as omnichannel orders it. */
-  list: ({ state, kyc, q, page = 1, size = 20 }: FarmersQuery = {}): Promise<Maybe<Page<Farmer>>> => {
+  list: ({ state, kyc, channel, q, page = 1, size = 20 }: FarmersQuery = {}): Promise<Maybe<Page<Farmer>>> => {
     const params = new URLSearchParams();
     if (state) params.set("state", state);
     if (kyc) params.set("kyc", kyc);
+    if (channel) params.set("channel", channel);
     if (q?.trim()) params.set("q", q.trim());
     const query = params.toString();
     return maybe(omniCall.page<Farmer>(`${FARMERS_PATH}${query ? `?${query}` : ""}`, page, Math.min(size, FARMERS_MAX_SIZE)));
@@ -91,6 +93,17 @@ export const farmersApi = {
       if (notBuilt(e)) throw new OmniApiError((e as OmniApiError).status, NOT_AVAILABLE);
       throw e;
     }
+  },
+  /** Complete one registered farmer's onboarding in person; answers the farmer as they are now. */
+  assistedOnboarding: (growerNo: string, body: AssistedOnboarding): Promise<Farmer> =>
+    notBuiltAsUnavailable(omniCall.post<Farmer>(`${farmerPath(growerNo)}/assisted-onboarding`, body)),
+  /** The farmer's photos and their review state. */
+  documents: (growerNo: string): Promise<Maybe<FarmerDocument[]>> => maybe(omniCall.list<FarmerDocument>(`${farmerPath(growerNo)}/documents`)),
+  uploadDocument: (growerNo: string, type: FarmerPhotoType, file: File): Promise<FarmerDocument> => {
+    const form = new FormData();
+    form.append("type", type);
+    form.append("file", file);
+    return notBuiltAsUnavailable(omniCall.post<FarmerDocument>(`${farmerPath(growerNo)}/documents`, form));
   },
   register: async (body: RegisterFarmer): Promise<Registered> => {
     try {

@@ -120,6 +120,13 @@ test("the farmer journey's reads, a farmer's wallet and the single register pass
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision", { method: "POST" })).res.status).toBe(200);
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision")).res.status).toBe(404);
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/other", { method: "POST" })).res.status).toBe(404);
+  // Assisted onboarding and a farmer's photos.
+  expect((await call("/omni/api/operator/farmers/TEST000001/assisted-onboarding", { method: "POST" })).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/TEST000001/documents", { method: "POST" })).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/TEST000001/documents")).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/TEST000001/assisted-onboarding")).res.status).toBe(404);
+  expect((await call("/omni/api/operator/farmers/TEST000001/documents/x")).res.status).toBe(404);
+  expect((await call("/omni/api/operator/farmers?channel=AGENT&page=1&size=20")).res.status).toBe(200);
   // The KYC sweep: no grower number in the path, so its own rule.
   const sweep = await call("/omni/api/operator/farmers/kyc/sweep", { method: "POST" });
   expect(sweep.res.status).toBe(200);

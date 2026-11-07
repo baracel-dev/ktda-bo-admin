@@ -113,6 +113,13 @@ test("the farmer journey's reads, a farmer's wallet and the single register pass
   expect(below.res.status).toBe(404);
   expect(below.upstream).toBeUndefined();
   expect((await call("/omni/api/operator/farmers", { method: "POST" })).res.status).toBe(200);
+  // Farmer KYC: the farmer behind a profile, and starting and deciding KYC.
+  expect((await call("/omni/api/operator/farmers/by-customer/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1")).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/by-customer/not-a-uuid")).res.status).toBe(404);
+  expect((await call("/omni/api/operator/farmers/TEST000001/kyc/start", { method: "POST" })).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision", { method: "POST" })).res.status).toBe(200);
+  expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision")).res.status).toBe(404);
+  expect((await call("/omni/api/operator/farmers/TEST000001/kyc/other", { method: "POST" })).res.status).toBe(404);
   // One farmer is a read, not something to post to.
   expect((await call("/omni/api/operator/farmers/TEST000001", { method: "POST" })).res.status).toBe(404);
   const deeper = await call("/omni/api/operator/farmers/TEST000001/wallet", { method: "POST" });

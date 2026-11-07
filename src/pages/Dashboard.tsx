@@ -17,7 +17,7 @@ import { ClipboardCheck, Users, ScrollText, ArrowUpRight, ArrowDownRight, Shield
 import { useAuth, ROLE_LABELS } from "../lib/auth";
 import { Link } from "react-router-dom";
 import { useAsyncData } from "../lib/useAsyncData";
-import { isHiddenPage } from "../lib/hiddenPages";
+import { isHiddenPage, isRemovedPage } from "../lib/hiddenPages";
 
 /* The dashboard is role-aware by construction: every panel is gated on the same
  * `canAccess` check the router uses, so a role that cannot open Approvals never
@@ -541,12 +541,14 @@ export default function Dashboard() {
                   hint={snapshot ? `${KES(snapshot.unallocatedValueKes)} held` : undefined}
                   tone={(snapshot?.unallocatedCount ?? 0) > 0 ? "warning" : "success"}
                 />
-                <ExceptionRow
-                  to="/screening"
-                  label="Unresolved screening matches"
-                  value={snapshot?.unresolvedScreeningMatches ?? 0}
-                  tone={(snapshot?.unresolvedScreeningMatches ?? 0) > 0 ? "danger" : "success"}
-                />
+                {!isRemovedPage("/screening") && (
+                  <ExceptionRow
+                    to="/screening"
+                    label="Unresolved screening matches"
+                    value={snapshot?.unresolvedScreeningMatches ?? 0}
+                    tone={(snapshot?.unresolvedScreeningMatches ?? 0) > 0 ? "danger" : "success"}
+                  />
+                )}
               </ul>
             )}
           </ChartFrame>

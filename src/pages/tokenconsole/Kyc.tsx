@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { BadgeCheck, Camera, Fingerprint, ShieldQuestion } from "lucide-react";
 import {
   Badge, Button, FilterBar, GlassStat, Modal, NotePanel, PageHeader, SearchInput, SectionTitle, SelectFilter,
@@ -19,6 +19,9 @@ import { ApplicantPhotos, ApplicationSection } from "../../components/tokenconso
 import { CustomerPhotos } from "../../components/tokenconsole/CustomerPhotos";
 import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
 import { Rescreening } from "../../components/tokenconsole/Rescreening";
+import { farmersApi } from "../../lib/api.farmers";
+import { KYC_LABEL, KYC_TONE, type Farmer } from "../../lib/journeyContract";
+import { KycDecisionModal } from "../ktda/FarmerKyc";
 
 /* The KYC desk: everything a reviewer needs to decide who someone is, on one
    page, one row per applicant. All of it from omnichannel, which answers only
@@ -27,9 +30,12 @@ import { Rescreening } from "../../components/tokenconsole/Rescreening";
      MISMATCH or an unchecked registry is what needs a person), and
    - the selfie and ID photos, each approved or rejected with a note the
      customer receives.
-   Joined on the app profile. A decision sets the applicant's KYC status
-   through omnichannel (POST /investors/{id}/kyc-status, audited there), which
-   refuses another institution's customer. Nothing here reads the engine
+   Joined on the app profile. A KTDA farmer's application is looked up as a
+   farmer (GET /farmers/by-customer/{profileId}): their KYC status says
+   whether they are decided, and a decision goes through the farmer's own
+   endpoint with a note (FarmerKyc.tsx). For anyone else a decision sets the
+   KYC status through POST /investors/{id}/kyc-status. Omnichannel refuses
+   another institution's customer either way. Nothing here reads the engine
    directly: its compliance reviews and investor register cover every
    institution. */
 
@@ -40,6 +46,8 @@ type Row = {
   /** The accounting investor the application opened (its externalRef); null before. */
   investorId: string | null;
   application: CheckedApplication | null;
+  /** The KTDA farmer behind the profile; null when they are not one, undefined until known. */
+  farmer: Farmer | null | undefined;
   /** Waiting for a decision. */
   photos: QueuedDocument[];
   accepted: QueuedDocument[];
@@ -57,10 +65,13 @@ const SHOW_OPTIONS = [
   { value: "ACCEPTED", label: "Photos approved" },
 ];
 
-/** A registry result a person has to look at, or photos waiting. Omnichannel
- *  does not yet say whether someone already decided, so a decided mismatch
- *  stays here; the panel shows their KYC status now. */
-const toDecide = (r: Row) => r.photos.length > 0 || (!!r.application && r.application.identityResult !== "MATCH");
+/** A KYC decision to make: for a farmer, KYC PENDING; for anyone else (who
+ *  carries no decided flag), a registry result that is not a match. */
+function kycToDecide(r: Row): boolean {
+  if (r.farmer?.kyc) return r.farmer.kyc.status === "PENDING";
+  return !!r.application && r.application.identityResult !== "MATCH";
+}
+const toDecide = (r: Row) => r.photos.length > 0 || kycToDecide(r);
 
 function matches(r: Row, show: string) {
   switch (show) {
@@ -74,9 +85,11 @@ function matches(r: Row, show: string) {
   }
 }
 
-/** One row per app profile: every application the registry did not match,
- *  and anyone with photos. A matched application only joins a row. */
-function applicants(applications: CheckedApplication[], waiting: QueuedDocument[], accepted: QueuedDocument[]): Row[] {
+/** One row per app profile with an application or photos. The desk lists
+ *  those with something to look at (onDesk); the rest open only by link. */
+function applicants(
+  applications: CheckedApplication[], waiting: QueuedDocument[], accepted: QueuedDocument[], farmers: Map<string, Farmer | null>,
+): Map<string, Row> {
   const appByProfile = new Map(applications.map((a) => [a.profileId, a]));
   const rows = new Map<string, Row>();
   const row = (profileId: string) => {
@@ -85,20 +98,45 @@ function applicants(applications: CheckedApplication[], waiting: QueuedDocument[
       const application = appByProfile.get(profileId) ?? null;
       rows.set(profileId, (r = {
         key: profileId, profileId, investorId: application?.externalRef || null, application,
+        farmer: farmers.has(profileId) ? farmers.get(profileId) : undefined,
         photos: [], accepted: [], name: application?.fullName ?? "", since: "",
       }));
     }
     return r;
   };
-  for (const app of applications) if (app.identityResult !== "MATCH") row(app.profileId);
+  for (const app of applications) row(app.profileId);
   for (const doc of waiting) row(doc.profileId).photos.push(doc);
   for (const doc of accepted) row(doc.profileId).accepted.push(doc);
   for (const r of rows.values()) {
     r.photos.sort((x, y) => DOC_ORDER.indexOf(x.type) - DOC_ORDER.indexOf(y.type));
     // The oldest photo waiting; otherwise when they applied.
-    r.since = r.photos.map((p) => p.uploadedAt).filter(Boolean).sort()[0] ?? r.application?.submittedAt ?? "";
+    r.since = r.photos.map((p) => p.uploadedAt).filter(Boolean).sort()[0] ?? r.farmer?.kyc?.startedAt ?? r.application?.submittedAt ?? "";
+    if (r.farmer?.fullName && !r.name) r.name = r.farmer.fullName;
   }
-  return [...rows.values()];
+  return rows;
+}
+
+/** On the desk: photos waiting or approved, or a KYC decision to make or made
+ *  (a decided farmer stays listed under "Everyone", out of "To decide"). */
+const onDesk = (r: Row) => r.photos.length > 0 || r.accepted.length > 0 || kycToDecide(r)
+  || (!!r.farmer?.kyc && r.farmer.kyc.status !== "NONE")
+  || (!r.farmer?.kyc && !!r.application && r.application.identityResult !== "MATCH");
+
+/** The farmer behind each profile, a few at a time; a lookup that fails is
+ *  left unknown (the row then behaves as for anyone else). */
+async function farmersFor(profileIds: string[]): Promise<{ found: Map<string, Farmer | null>; failed: number }> {
+  const found = new Map<string, Farmer | null>();
+  let failed = 0;
+  for (let i = 0; i < profileIds.length; i += 8) {
+    await Promise.all(profileIds.slice(i, i + 8).map(async (id) => {
+      try {
+        found.set(id, await farmersApi.byCustomer(id));
+      } catch {
+        failed++;
+      }
+    }));
+  }
+  return { found, failed };
 }
 
 export default function TokenConsoleKyc() {
@@ -111,19 +149,29 @@ export default function TokenConsoleKyc() {
   const accepted = useAsyncData(omniApi.acceptedDocuments);
   const [show, setShow] = useState(TO_DECIDE);
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  // ?profile= opens that applicant (the farmer profile links here).
+  const [params] = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(params.get("profile"));
 
-  const all = useMemo<Row[]>(() => applicants(
-    [...(mismatched.data ?? []), ...(unchecked.data ?? []), ...(matched.data ?? [])],
-    waiting.data ?? [], accepted.data ?? [],
-  ), [mismatched.data, unchecked.data, matched.data, waiting.data, accepted.data]);
+  const apps = useMemo(() => [...(mismatched.data ?? []), ...(unchecked.data ?? []), ...(matched.data ?? [])],
+    [mismatched.data, unchecked.data, matched.data]);
+  const profileIds = useMemo(() => [...new Set([...apps.map((a) => a.profileId), ...(waiting.data ?? []).map((d) => d.profileId)])].sort(),
+    [apps, waiting.data]);
+  const idsKey = profileIds.join();
+  const farmers = useAsyncData(() => farmersFor(profileIds));
+  const { reload: reloadFarmers } = farmers;
+  useEffect(() => { if (idsKey) void reloadFarmers(); }, [idsKey, reloadFarmers]);
+
+  const byProfile = useMemo(() => applicants(apps, waiting.data ?? [], accepted.data ?? [], farmers.data?.found ?? new Map()),
+    [apps, waiting.data, accepted.data, farmers.data]);
+  const all = useMemo(() => [...byProfile.values()].filter(onDesk), [byProfile]);
 
   const term = q.trim().toLowerCase();
   const showingAccepted = show === "ACCEPTED";
   const latestAccepted = (r: Row) => r.accepted.map((d) => d.reviewedAt ?? "").sort().at(-1) ?? "";
   const rows = all
     .filter((r) => matches(r, show))
-    .filter((r) => !term || [r.name, r.investorId, r.profileId].some((v) => (v ?? "").toLowerCase().includes(term)))
+    .filter((r) => !term || [r.name, r.investorId, r.profileId, r.farmer?.growerNo].some((v) => (v ?? "").toLowerCase().includes(term)))
     // Newest first: by when they started waiting, or for approved photos by the latest decision.
     .sort((a, b) => showingAccepted ? latestAccepted(b).localeCompare(latestAccepted(a)) : b.since.localeCompare(a.since));
 
@@ -136,13 +184,14 @@ export default function TokenConsoleKyc() {
   const oldest = all.filter(toDecide).map((r) => r.since).filter(Boolean).sort()[0];
   // Deciding someone's last photo can take their row off the desk; the panel
   // stays open on what it had, with nothing left to decide.
-  const found = all.find((r) => r.key === selected);
+  const found = selected ? byProfile.get(selected) : undefined;
   const lastOpen = useRef<Row | null>(null);
   if (found) lastOpen.current = found;
   const selectedRow = found ?? (selected && lastOpen.current?.key === selected ? { ...lastOpen.current, photos: [], accepted: [] } : undefined);
   const partial = [
     waiting.error && `the photos waiting (${waiting.error})`,
     accepted.error && `the approved photos (${accepted.error})`,
+    farmers.data?.failed && `which applicants are farmers, for ${farmers.data.failed} of them`,
   ].filter(Boolean);
   const reloadAll = () => {
     for (const s of [mismatched, unchecked, matched, waiting, accepted]) void s.reload();
@@ -178,7 +227,7 @@ export default function TokenConsoleKyc() {
       )}
 
       <FilterBar className="mb-3">
-        <SearchInput value={q} onChange={setQ} placeholder="Name, investor id or profile id…" className="w-72" />
+        <SearchInput value={q} onChange={setQ} placeholder="Name, grower no., investor id or profile id…" className="w-72" />
         <SelectFilter value={show} onChange={setShow} options={SHOW_OPTIONS} allLabel="Everyone" />
       </FilterBar>
 
@@ -197,6 +246,7 @@ export default function TokenConsoleKyc() {
             <div>
               <div className="font-medium text-text">{r.name || <Code>{shortId(r.profileId)}</Code>}</div>
               <div className="mt-0.5 text-xs text-text-faint">
+                {r.farmer ? <>Farmer <span className="font-mono">{r.farmer.growerNo}</span> · </> : null}
                 {r.application ? `Born ${dateOf(r.application.dateOfBirth)} · ${r.application.nationality}` : "Has not applied yet"}
               </div>
             </div>
@@ -217,6 +267,9 @@ export default function TokenConsoleKyc() {
               ? <span className="text-text">{list.map((p) => DOC_LABEL[p.type] ?? p.type).join(", ")}</span>
               : <span className="text-xs text-text-faint">None</span>;
           } },
+          { key: "kyc", header: "KYC", render: (r) => r.farmer?.kyc
+            ? <Badge tone={KYC_TONE[r.farmer.kyc.status] ?? "neutral"} className="whitespace-nowrap">{KYC_LABEL[r.farmer.kyc.status] ?? r.farmer.kyc.status}</Badge>
+            : <span className="text-xs text-text-faint">—</span> },
           { key: "since", header: showingAccepted ? "Approved" : "Waiting since", className: "whitespace-nowrap", render: (r) => {
             const at = showingAccepted ? latestAccepted(r) : r.since;
             return <span className="tabular text-xs text-text-soft">{at ? dateTime(at) : "—"}</span>;
@@ -232,6 +285,7 @@ export default function TokenConsoleKyc() {
           <ApplicantPanel
             key={selectedRow.key}
             row={selectedRow}
+            onFarmerDecided={(f) => farmers.setData((d) => d && { ...d, found: new Map(d.found).set(selectedRow.profileId, f) })}
             onPhotoDecided={(decided) => {
               // Moved across before the reloads, so an approved photo never leaves the panel in between.
               if (decided) {
@@ -259,7 +313,11 @@ function photosOnShow(r: Row, rejected: QueuedDocument[]): QueuedDocument[] {
   return [...r.photos, ...rejected, ...approved].sort((x, y) => DOC_ORDER.indexOf(x.type) - DOC_ORDER.indexOf(y.type));
 }
 
-function ApplicantPanel({ row, onPhotoDecided }: { row: Row; onPhotoDecided: (decided?: QueuedDocument) => void }) {
+function ApplicantPanel({ row, onPhotoDecided, onFarmerDecided }: {
+  row: Row;
+  onPhotoDecided: (decided?: QueuedDocument) => void;
+  onFarmerDecided: (f: Farmer) => void;
+}) {
   const toast = useToast();
   const { user } = useAuth();
   const mayDecide = canDecideKyc(user?.tokRoles);
@@ -268,6 +326,8 @@ function ApplicantPanel({ row, onPhotoDecided }: { row: Row; onPhotoDecided: (de
   const customer = useAsyncData(() => omniApi.customer(row.profileId));
   const decide = useAction((kycStatus: "VERIFIED" | "REJECTED") => omniApi.setKycStatus(investorId ?? "", kycStatus));
   const [decision, setDecision] = useState<KycDecision | null>(null);
+  const farmer = row.farmer?.kyc ? row.farmer : null;
+  const farmerKyc = farmer?.kyc ?? null;
 
   const c = customer.data;
   const kycStatus = c?.account?.kycStatus ?? null;
@@ -299,10 +359,17 @@ function ApplicantPanel({ row, onPhotoDecided }: { row: Row; onPhotoDecided: (de
       {customer.error && <NotePanel tone="danger" className="mb-4">Could not load their standing: {customer.error}</NotePanel>}
       <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2" data-testid="applicant-standing">
         <DetailItem term="Applicant">{name || "—"}</DetailItem>
-        <DetailItem term="Investor"><Code>{investorId ?? "—"}</Code></DetailItem>
-        <DetailItem term="KYC status">{customer.loading && !c ? "…" : <StatusBadge status={kycStatus} />}</DetailItem>
+        {farmer
+          ? <DetailItem term="Farmer"><Link to={`/farmers/${encodeURIComponent(farmer.growerNo)}`} className="font-mono text-primary-600 hover:underline">{farmer.growerNo}</Link></DetailItem>
+          : <DetailItem term="Investor"><Code>{investorId ?? "—"}</Code></DetailItem>}
+        <DetailItem term="KYC status">
+          {farmerKyc
+            ? <Badge tone={KYC_TONE[farmerKyc.status] ?? "neutral"}>{KYC_LABEL[farmerKyc.status] ?? farmerKyc.status}</Badge>
+            : customer.loading && !c ? "…" : <StatusBadge status={kycStatus} />}
+        </DetailItem>
         <DetailItem term="Profile"><StatusBadge status={c?.status} /></DetailItem>
       </dl>
+      {farmerKyc?.note && <p className="mt-2 text-[12.5px] text-text" data-testid="farmer-kyc-note">{farmerKyc.status === "NONE" ? "Not started: " : "Note: "}{farmerKyc.note}</p>}
       {/* ID and KRA numbers stay with onboarding; omnichannel does not return them. */}
       <p className="mt-2 text-xs text-text-soft">
         Identity numbers stay with onboarding and are not shown. What is checkable is the registry result and the photos below.
@@ -322,7 +389,22 @@ function ApplicantPanel({ row, onPhotoDecided }: { row: Row; onPhotoDecided: (de
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-        {!investorId ? (
+        {farmerKyc ? (
+          farmerKyc.status !== "PENDING" ? (
+            <span className="text-[12.5px] text-text-soft">
+              {farmerKyc.status === "NONE" ? "KYC has not started for this farmer; start it from their profile." : "This farmer's KYC is decided."}
+            </span>
+          ) : !mayDecide ? (
+            <span className="text-[12.5px] text-text-soft">
+              Deciding KYC needs the {KYC_DECIDER_ROLES.map((r) => label(r)).join(" or ")} role. You can see the desk; someone with that role decides.
+            </span>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => setDecision("verify")}><BadgeCheck size={14} /> Approve</Button>
+              <Button variant="outline" size="sm" onClick={() => setDecision("reject")}>Reject</Button>
+            </>
+          )
+        ) : !investorId ? (
           <span className="text-[12.5px] text-text-soft">They have not applied yet: there is no KYC status to decide.</span>
         ) : !mayDecide ? (
           <span className="text-[12.5px] text-text-soft">
@@ -340,8 +422,23 @@ function ApplicantPanel({ row, onPhotoDecided }: { row: Row; onPhotoDecided: (de
         )}
       </div>
 
-      {decision &&
+      {decision && farmer &&
         // Portalled: BO Admin's Modal is not, and this one opens over another.
+        createPortal(
+          <KycDecisionModal
+            name={name || farmer.growerNo}
+            decision={decision === "verify" ? "VERIFIED" : "REJECTED"}
+            decide={(body) => farmersApi.decideKyc(farmer.growerNo, body)}
+            onCancel={() => setDecision(null)}
+            onDone={(f) => {
+              setDecision(null);
+              onFarmerDecided(f);
+              toast.push(`${name || f.growerNo}: KYC ${KYC_LABEL[f.kyc?.status ?? "NONE"].toLowerCase()}.`);
+            }}
+          />,
+          document.body,
+        )}
+      {decision && !farmer &&
         createPortal(
           <ConfirmDecision
             decision={decision}

@@ -146,6 +146,68 @@ export type Farmer = {
   clashReason?: string | null;
   /** Where the farmer's KYC stands. Older omnichannel leaves it out. */
   kyc?: FarmerKyc | null;
+  /** How they joined. null for one onboarded before the register kept it, or
+   *  not activated yet; missing on an older omnichannel. */
+  onboarding?: FarmerOnboarding | null;
+  /** Whether the register holds a national ID for them (the number itself is
+   *  never returned). Not in omnichannel's contract yet: when missing the
+   *  assisted-onboarding form lets staff leave the ID empty. */
+  nationalIdOnFile?: boolean;
+};
+
+/* ---- How a farmer joined, and assisted onboarding (KTDA 5.2.1) ---- */
+
+export type OnboardingChannel = "BULK" | "AGENT" | "STAFF" | "APP" | "USSD";
+export const ONBOARDING_CHANNELS: OnboardingChannel[] = ["BULK", "AGENT", "STAFF", "APP", "USSD"];
+export const CHANNEL_LABEL: Record<OnboardingChannel, string> = {
+  BULK: "Bulk (factory file)", AGENT: "Agent", STAFF: "Staff, in person", APP: "App", USSD: "USSD",
+};
+export type FarmerOnboarding = { channel: OnboardingChannel | null; agentNo: string | null; at: string | null };
+/** GET /farmers/summary's byChannel, for "How farmers joined". */
+export type ByChannel = { bulk: number; agent: number; staff: number; app: number; ussd: number; unknown: number };
+export const BY_CHANNEL_KEYS: { key: keyof ByChannel; label: string }[] = [
+  { key: "bulk", label: "Bulk (factory file)" }, { key: "agent", label: "Agent" }, { key: "staff", label: "Staff, in person" },
+  { key: "app", label: "App" }, { key: "ussd", label: "USSD" }, { key: "unknown", label: "Not recorded" },
+];
+
+/** POST /farmers/{growerNo}/assisted-onboarding: staff, or a field agent,
+ *  completes one REGISTERED farmer's onboarding in person: opens the wallet,
+ *  activates them, records consent (channel AGENT, which means "in person to
+ *  someone acting for the institution"), starts KYC, and when an agent is
+ *  named records their ONBOARDING activity and commission once. Answers the
+ *  farmer. 409 FARMER_HELD (a CLASH), FARMER_ALREADY_ACTIVATED,
+ *  WALLET_NOT_OPENED (the ledger's message; the farmer stays REGISTERED),
+ *  AGENT_SUSPENDED; 400 with `field` for consent.terms, nationalId (none, or
+ *  another than the one on file), dateOfBirth, agentNo (no such agent). */
+export type AssistedOnboarding = {
+  nationalId?: string;
+  dateOfBirth: string;
+  idDocumentRef?: string;
+  agentNo?: string;
+  consent: { terms: true };
+};
+export const ID_DOCUMENT_REF_MAX = 200;
+
+/** The photos 5.2.2 asks for, as omnichannel's onboarding DocumentType names
+ *  them. Uploaded through POST /farmers/{growerNo}/documents (multipart:
+ *  type, file), listed by GET; reviewed on the KYC desk. JPEG or PNG, up to
+ *  5 MB (the onboarding module's limits). */
+export type FarmerPhotoType = "SELFIE" | "ID_FRONT" | "ID_BACK";
+export const FARMER_PHOTO_TYPES: FarmerPhotoType[] = ["SELFIE", "ID_FRONT", "ID_BACK"];
+export const PHOTO_LABEL: Record<FarmerPhotoType, string> = { SELFIE: "Selfie", ID_FRONT: "ID, front", ID_BACK: "ID, back" };
+export const PHOTO_CONTENT_TYPES = ["image/jpeg", "image/png"];
+export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+/** The onboarding module's MyDocument view. */
+export type FarmerDocument = {
+  id: string;
+  type: FarmerPhotoType | "PROOF_OF_ADDRESS" | string;
+  contentType: string;
+  sizeBytes: number;
+  status: "PENDING_REVIEW" | "PASSED" | "FAILED";
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  uploadedAt: string;
+  required: boolean;
 };
 
 /* ---- Farmer KYC ----
@@ -216,6 +278,8 @@ export type FarmersSummary = {
   registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number;
   /** Farmers per KYC status; missing on an omnichannel before the sweep. */
   kyc?: { none: number; pending: number; verified: number; rejected: number };
+  /** Farmers by how they joined; missing before assisted onboarding. */
+  byChannel?: ByChannel;
 };
 export const SUMMARY_KEY: Record<FarmerState, "registered" | "activated" | "funded" | "clash"> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
 
@@ -226,7 +290,7 @@ export const SUMMARY_KEY: Record<FarmerState, "registered" | "activated" | "fund
  *  (no code beyond the status; the message says what). */
 export type RegisterFarmer = { growerNo: string; fullName: string; phone: string; nationalId?: string; factory?: string };
 
-/** GET /farmers?state=&kyc=&q=&page=&size= : a plain array, paged by the X-Total-*
+/** GET /farmers?state=&kyc=&channel=&q=&page=&size= : a plain array, paged by the X-Total-*
  *  headers, page from 1, size up to 100. q matches grower number and name
  *  (contains, any case) and the phone however it is typed. */
 export const FARMERS_PATH = "/farmers";

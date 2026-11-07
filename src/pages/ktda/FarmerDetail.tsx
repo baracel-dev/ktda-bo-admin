@@ -8,10 +8,11 @@ import { farmersApi } from "../../lib/api.farmers";
 import { farmerWallet } from "../../lib/farmerWallet";
 import { OmniApiError } from "../../lib/omniApi";
 import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
-import { NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, type Farmer } from "../../lib/journeyContract";
+import { CHANNEL_LABEL, NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, type Farmer } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
 import { FarmerKyc } from "./FarmerKyc";
+import { AssistedOnboardingSection, FarmerPhotos } from "./AssistedOnboarding";
 
 /* One farmer of this institution: their record and stage, their wallet
    balance and every movement in it, all from omnichannel (which reads the
@@ -44,6 +45,7 @@ export default function FarmerDetail() {
   const growerNo = useParams().growerNo ?? "";
   const profile = useAsyncData(() => loadProfile(growerNo));
   const farmer = profile.data?.found ? profile.data.farmer : null;
+  const [onboarded, setOnboarded] = useState(false);
 
   const wallet = useAsyncData(async () => (farmer ? farmerWallet.wallet(farmer.growerNo) : null));
   const { reload: reloadWallet } = wallet;
@@ -88,13 +90,25 @@ export default function FarmerDetail() {
       <PageHeader
         eyebrow={`Farmer · ${farmer.growerNo}`}
         title={farmer.fullName ?? farmer.growerNo}
-        subtitle={[farmer.factory, farmer.registeredAt && `registered ${calendarDate(farmer.registeredAt)}`].filter(Boolean).join(" · ") || undefined}
+        subtitle={[
+          farmer.factory,
+          farmer.registeredAt && `registered ${calendarDate(farmer.registeredAt)}`,
+          farmer.onboarding?.channel && `joined via ${CHANNEL_LABEL[farmer.onboarding.channel]?.toLowerCase() ?? farmer.onboarding.channel}${farmer.onboarding.agentNo ? ` (agent ${farmer.onboarding.agentNo})` : ""}`,
+        ].filter(Boolean).join(" · ") || undefined}
         actions={<Badge tone={STATE_TONE[farmer.status] ?? "neutral"}>{STATE_LABEL[farmer.status] ?? farmer.status}</Badge>}
       />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
+        {/* Kept on show after it succeeds, so its outcome stays while the farmer reloads as activated. */}
+        {(farmer.status === "REGISTERED" || onboarded) && (
+          <AssistedOnboardingSection
+            farmer={farmer}
+            onDone={() => { setOnboarded(true); void profile.reload(); void wallet.reload(); }}
+          />
+        )}
         <FarmerKyc farmer={farmer} onChanged={(f) => profile.setData({ found: true, farmer: f })} />
+        {farmer.status !== "CLASH" && <FarmerPhotos growerNo={farmer.growerNo} />}
         <section aria-label="Wallet" className="min-w-0">
           {wallet.error === NOT_AVAILABLE ? (
             <NotAvailable />

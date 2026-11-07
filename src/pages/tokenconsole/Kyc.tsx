@@ -57,16 +57,21 @@ export default function TokenConsoleKyc() {
   const [open, setOpen] = useState<string | null>(params.get("grower"));
 
   const set = (next: { kyc?: Tab; q?: string; page?: number }) => {
-    const p = new URLSearchParams(params);
-    if (next.kyc) p.set("kyc", next.kyc);
-    if ("q" in next) {
-      if (next.q?.trim()) p.set("q", next.q.trim());
-      else p.delete("q");
-    }
-    if (next.page && next.page > 1) p.set("page", String(next.page));
-    else p.delete("page");
-    p.delete("grower");
-    setParams(p, { replace: true });
+    // From the address as it is now, not as this render saw it: a delayed
+    // search must not undo a tab chosen meanwhile. (React Router's own
+    // updater hands back the render's copy, so read the location itself.)
+    setParams(() => {
+      const p = new URLSearchParams(window.location.search);
+      if (next.kyc) p.set("kyc", next.kyc);
+      if ("q" in next) {
+        if (next.q?.trim()) p.set("q", next.q.trim());
+        else p.delete("q");
+      }
+      if (next.page && next.page > 1) p.set("page", String(next.page));
+      else p.delete("page");
+      p.delete("grower");
+      return p;
+    }, { replace: true });
   };
 
   useEffect(() => {

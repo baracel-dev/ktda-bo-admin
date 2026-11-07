@@ -47,14 +47,19 @@ export default function FarmersByStage() {
   const navigate = useNavigate();
 
   const set = (next: { state?: FarmerState | null; kyc?: KycStatus | null; channel?: OnboardingChannel | null; q?: string; page?: number }) => {
-    const p = new URLSearchParams(params);
-    const put = (k: string, v: string | null | undefined) => (v ? p.set(k, v) : p.delete(k));
-    if ("state" in next) put("state", next.state ?? null);
-    if ("kyc" in next) put("kyc", next.kyc ?? null);
-    if ("channel" in next) put("channel", next.channel ?? null);
-    if ("q" in next) put("q", next.q?.trim() || null);
-    put("page", next.page && next.page > 1 ? String(next.page) : null);
-    setParams(p, { replace: true });
+    // From the address as it is now, not as this render saw it: a delayed
+    // search must not undo a tab chosen meanwhile. (React Router's own
+    // updater hands back the render's copy, so read the location itself.)
+    setParams(() => {
+      const p = new URLSearchParams(window.location.search);
+      const put = (k: string, v: string | null | undefined) => (v ? p.set(k, v) : p.delete(k));
+      if ("state" in next) put("state", next.state ?? null);
+      if ("kyc" in next) put("kyc", next.kyc ?? null);
+      if ("channel" in next) put("channel", next.channel ?? null);
+      if ("q" in next) put("q", next.q?.trim() || null);
+      put("page", next.page && next.page > 1 ? String(next.page) : null);
+      return p;
+    }, { replace: true });
   };
 
   // Search as the operator stops typing.

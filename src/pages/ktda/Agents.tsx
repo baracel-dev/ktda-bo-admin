@@ -62,23 +62,28 @@ export default function Agents() {
   const reinstate = useAction((agentNo: string) => agentsApi.reinstate(agentNo));
 
   const set = (next: { status?: Tab; q?: string; page?: number; focus?: string | null }) => {
-    const p = new URLSearchParams(params);
-    if (next.status) {
-      if (next.status === "ALL") p.delete("status");
-      else p.set("status", next.status);
-    }
-    if ("q" in next) {
-      if (next.q?.trim()) p.set("q", next.q.trim());
-      else p.delete("q");
-    }
-    if ("focus" in next) {
-      if (next.focus) p.set("focus", next.focus);
-      else p.delete("focus");
-    } else {
-      if (next.page && next.page > 1) p.set("page", String(next.page));
-      else p.delete("page");
-    }
-    setParams(p, { replace: true });
+    // From the address as it is now, not as this render saw it: a delayed
+    // search must not undo a tab chosen meanwhile. (React Router's own
+    // updater hands back the render's copy, so read the location itself.)
+    setParams(() => {
+      const p = new URLSearchParams(window.location.search);
+      if (next.status) {
+        if (next.status === "ALL") p.delete("status");
+        else p.set("status", next.status);
+      }
+      if ("q" in next) {
+        if (next.q?.trim()) p.set("q", next.q.trim());
+        else p.delete("q");
+      }
+      if ("focus" in next) {
+        if (next.focus) p.set("focus", next.focus);
+        else p.delete("focus");
+      } else {
+        if (next.page && next.page > 1) p.set("page", String(next.page));
+        else p.delete("page");
+      }
+      return p;
+    }, { replace: true });
   };
 
   useEffect(() => {

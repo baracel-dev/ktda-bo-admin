@@ -75,6 +75,18 @@ test("tiles, tabs with counts, the table, and sales not yet measured", async ({ 
   await expect.poll(() => sent.some((s) => s.path === "/merchants" && s.query.get("status") === "NEEDS_DOCUMENTS" && s.query.get("q") === "Kericho")).toBe(true);
 });
 
+test("a tab chosen while the search is still waiting is kept", async ({ page }) => {
+  const sent = await stub(page);
+  await page.goto("/merchants");
+  // Typed, then the tab picked before the search's pause is over.
+  await page.getByPlaceholder("Name, town, owner or till").fill("Kericho");
+  await page.getByRole("tab", { name: /^Approved/ }).click();
+  await expect(page).toHaveURL(/status=APPROVED/);
+  await expect(page).toHaveURL(/q=Kericho/);
+  await expect.poll(() => sent.some((s) => s.path === "/merchants" && s.query.get("status") === "APPROVED" && s.query.get("q") === "Kericho")).toBe(true);
+  await expect(page).toHaveURL(/status=APPROVED/);
+});
+
 test("a row opens the drawer at ?focus=, with the BRS card, settlement and documents", async ({ page }) => {
   await stub(page, { one: merchant("M-10200", { documents: DOCS.map((type, i) => ({ type, received: i < 2, receivedAt: i < 2 ? "2026-11-07T08:00:00Z" : null, reference: null })) }) });
   await page.goto("/merchants");

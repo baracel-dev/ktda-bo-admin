@@ -3,7 +3,7 @@ import {
   UserCheck, Inbox, ListChecks, CalendarCheck2, Activity, Radar, Wallet, ArrowLeftRight, MessageSquareWarning,
   GitCompareArrows, TriangleAlert, FileBarChart2, BookOpenCheck, Scale, CalendarClock, HandCoins, Landmark,
   FileSpreadsheet, FileSearch, ShieldAlert, FolderSearch, ShieldCheck, Siren, Settings, SlidersHorizontal, ServerCog,
-  UserCog, ScrollText, Percent, KeyRound, ToggleLeft, Building2, Route as RouteIcon,
+  UserCog, ScrollText, Percent, KeyRound, ToggleLeft, Building2, Route as RouteIcon, Store, Briefcase,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { NavItem } from "../ui";
@@ -14,8 +14,8 @@ type NavDef = Omit<NavItem, "icon" | "badge"> & { icon: typeof LayoutDashboard }
 /* KTDA's navigation: four top-level items and three groups (People, Money,
    Admin), after the prototype back office (docs/ktda). Each group lists the
    prototype's pages first, then the pages this back office already has that
-   fit there. Prototype pages not built yet (Partner payments, Merchants,
-   Agents, Input vouchers, Custody & liquidity, Integrations) join the menu
+   fit there. Prototype pages not built yet (Partner payments, Input
+   vouchers, Custody & liquidity, Integrations) join the menu
    when their page lands. */
 const KTDA_NAV: NavDef[] = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard },
@@ -24,6 +24,8 @@ const KTDA_NAV: NavDef[] = [
 
   { label: "Farmer journey", to: "/journey", section: "People", icon: RouteIcon },
   { label: "Farmers", to: "/farmers", section: "People", icon: Users },
+  { label: "Merchants", to: "/merchants", section: "People", icon: Store },
+  { label: "Agents", to: "/agents", section: "People", icon: Briefcase },
   { label: "Onboarding review", to: "/kyc-queue", section: "People", icon: FileCheck2 },
   { label: "Messages", to: "/campaigns", section: "People", icon: Megaphone },
   { label: "Bulk onboarding", to: "/bulk/onboarding", section: "People", icon: UserPlus },

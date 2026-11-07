@@ -88,7 +88,7 @@ export function staffName(subject: string | null | undefined): string {
 
 /** A FormData body goes as multipart: the browser sets Content-Type with
  *  its boundary, so it is never set here. Anything else goes as JSON. */
-async function send(method: "GET" | "POST", path: string, body?: unknown, accept?: string): Promise<Response> {
+async function send(method: "GET" | "POST" | "PUT", path: string, body?: unknown, accept?: string): Promise<Response> {
   const form = body instanceof FormData;
   const headers: Record<string, string> = {};
   if (body !== undefined && !form) headers["Content-Type"] = "application/json";
@@ -461,6 +461,18 @@ export const omniCall = {
   post,
   /** A POST whose success status matters (201 created vs 200 already there). */
   postWithStatus,
+  put: async <T>(path: string, body: unknown): Promise<T> => {
+    const res = await send("PUT", path, body);
+    const text = await res.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    if (!res.ok) throw errorFrom(res.status, data);
+    return data as T;
+  },
 };
 
 const paymentPath = (id: string) => `/payments/${encodeURIComponent(id)}`;

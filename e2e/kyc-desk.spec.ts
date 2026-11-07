@@ -1,132 +1,185 @@
 import { expect, test, type Page } from "@playwright/test";
-import { envelope, json, signIn } from "./stubs";
+import { envelope, json, signIn, STAFF } from "./stubs";
 
-/* The KYC desk (Kyc.tsx) on omnichannel only: applicants from the
- * applications by registry result and the photos, their standing from the
- * customer record, a decision through POST /investors/{id}/kyc-status. The
- * engine's compliance reviews and investor register (every institution's)
- * are never read. Stubbed. */
-
-const P1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
-const P2 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
-const P3 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
-const INV1 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
-const DOC = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+/* The KYC desk (Kyc.tsx): this institution's farmers by KYC status, from
+ * omnichannel's farmer list (?kyc=) and the summary's kyc counts. A row
+ * opens the farmer: Start KYC, Approve or Reject with a note through the
+ * farmer endpoints, and the application and photos through their app
+ * profile. Nothing from the engine. Stubbed. */
 
 type Obj = Record<string, unknown>;
-const app = (profileId: string, identityResult: string, over: Obj = {}): Obj => ({
-  id: `app-${profileId.slice(-1)}`, profileId, fullName: "Test Farmer One", dateOfBirth: "1990-04-02", nationality: "KE",
-  identityResult, identityMismatches: identityResult === "MISMATCH" ? ["name"] : null, identitySource: "IPRS",
-  identityCheckedAt: "2026-11-06T08:00:00Z", screeningClear: true, product: "TOKENIZATION", externalRef: INV1,
-  submittedAt: "2026-11-06T08:00:00Z", ...over,
+const P1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const kyc = (status: string, over: Obj = {}): Obj => ({
+  status, identityResult: status === "NONE" ? null : "MATCH", startedAt: status === "NONE" ? null : "2026-11-07T08:00:00Z",
+  decidedAt: status === "VERIFIED" || status === "REJECTED" ? "2026-11-07T09:00:00Z" : null, note: null, ...over,
 });
-const doc = (profileId: string, over: Obj = {}): Obj => ({
-  id: DOC, profileId, type: "SELFIE", contentType: "image/png", sizeBytes: 10, status: "PENDING_REVIEW",
-  reviewNote: null, reviewedBy: null, reviewedAt: null, uploadedAt: "2026-11-06T09:00:00Z", ...over,
+const farmer = (growerNo: string, k: Obj, over: Obj = {}): Obj => ({
+  growerNo, fullName: `Test Farmer ${growerNo.slice(-1)}`, phone: "+254700000101", factory: "Test Factory A", status: "FUNDED",
+  registeredAt: "2026-11-06T08:00:00Z", activatedAt: "2026-11-06T09:00:00Z", lastFundedAt: "2026-11-06T10:00:00Z",
+  customerId: P1, clashReason: null, kyc: k, ...over,
 });
-const customer = (profileId: string, kycStatus: string): Obj => ({
-  profileId, displayName: "Test Farmer One", legalName: "Test Farmer One", status: "ACTIVE", registeredAt: "2026-11-06T07:00:00Z",
-  contacts: [], links: [], account: { linked: true, investorId: INV1, legalName: "Test Farmer One", kycStatus, canInvest: false },
-  activeDevices: 1, pushEnabled: false,
+const application = (over: Obj = {}): Obj => ({
+  id: "app-1", profileId: P1, fullName: "Test Farmer 1", dateOfBirth: "1994-03-12", nationality: "KE", identityResult: "MATCH",
+  identityMismatches: null, identitySource: "IPRS", identityCheckedAt: "2026-11-07T08:00:00Z", screeningClear: true,
+  product: "TOKENIZATION", externalRef: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1", submittedAt: "2026-11-07T08:00:00Z", ...over,
 });
+const SUMMARY = { registered: 0, activated: 2, funded: 3, total: 5, kycPending: 2, kyc: { none: 1, pending: 2, verified: 1, rejected: 1 } };
+type Answer = { status: number; body: unknown };
+const paged = (items: Obj[]) => ({ "X-Total-Count": String(items.length), "X-Page": "1", "X-Size": "20", "X-Total-Pages": "1" });
 
-async function stub(page: Page, opts: { apps?: Record<string, Obj[]>; waiting?: Obj[]; kyc?: string; decide?: { status: number; body: unknown }; appsFail?: boolean } = {}) {
+async function stub(page: Page, opts: {
+  byKyc?: Record<string, Obj[]>;
+  summary?: Obj;
+  one?: Obj;
+  apps?: Obj[];
+  docs?: Obj[];
+  start?: Answer;
+  decision?: Answer;
+  listFail?: boolean;
+} = {}) {
+  const sent: { method: string; path: string; query: URLSearchParams; body: unknown }[] = [];
   const engine: string[] = [];
-  const posts: { path: string; body: unknown }[] = [];
-  let kyc = opts.kyc ?? "PENDING";
   page.on("request", (r) => { if (/\/tok\/accounting\//.test(r.url())) engine.push(new URL(r.url()).pathname); });
-  await page.route(/\/omni\/api\/operator\//, async (route) => {
+  const byKyc = opts.byKyc ?? { PENDING: [farmer("TEST000001", kyc("PENDING")), farmer("TEST000002", kyc("PENDING"))] };
+  await page.route(/\/omni\/api\/operator\//, (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const path = url.pathname.replace(/^\/omni\/api\/operator/, "");
+    const body = req.method() === "POST" ? req.postDataJSON() : null;
+    sent.push({ method: req.method(), path, query: url.searchParams, body });
+    const one = opts.one ?? farmer("TEST000001", kyc("PENDING"));
     if (req.method() === "POST") {
-      posts.push({ path, body: req.postDataJSON() });
-      if (path === `/investors/${INV1}/kyc-status`) {
-        const d = opts.decide ?? { status: 200, body: { investorId: INV1, legalName: "Test Farmer One", kycStatus: (req.postDataJSON() as Obj).kycStatus } };
-        if (d.status === 200) kyc = String((d.body as Obj).kycStatus);
-        return json(route, d.body, d.status);
+      if (path.endsWith("/kyc/start")) { const a = opts.start ?? { status: 200, body: { ...one, kyc: kyc("PENDING", { identityResult: "UNCHECKED" }) } }; return json(route, a.body, a.status); }
+      if (path.endsWith("/kyc/decision")) {
+        const a = opts.decision ?? { status: 200, body: { ...one, kyc: kyc((body as Obj).decision as string, { note: (body as Obj).note ?? null }) } };
+        return json(route, a.body, a.status);
       }
       return json(route, envelope(404, "Not stubbed"), 404);
     }
+    if (path === "/farmers") {
+      if (opts.listFail) return json(route, envelope(500, "farmers down"), 500);
+      const items = url.searchParams.get("kyc") ? byKyc[url.searchParams.get("kyc")!] ?? [] : Object.values(byKyc).flat();
+      return route.fulfill({ status: 200, contentType: "application/json", headers: paged(items), body: JSON.stringify(items) });
+    }
+    if (path === "/farmers/summary") return json(route, opts.summary ?? SUMMARY);
+    if (path === "/farmers/kyc/sweep") return json(route, envelope(404, "No sweep"), 404);
+    if (/^\/farmers\/[^/]+$/.test(path)) return json(route, one);
     if (path === "/onboarding/applications") {
-      if (opts.appsFail) return json(route, envelope(500, "applications down"), 500);
-      return json(route, (opts.apps ?? { MISMATCH: [app(P1, "MISMATCH")] })[url.searchParams.get("identityResult") ?? "MISMATCH"] ?? []);
+      const r = url.searchParams.get("identityResult");
+      return json(route, (opts.apps ?? [application()]).filter((a) => a.identityResult === r));
     }
-    if (path === "/onboarding/applications/screening-hits") return json(route, []);
-    if (path === "/onboarding/documents") {
-      if (url.searchParams.get("status") === "PASSED") return json(route, []);
-      if (url.searchParams.get("profileId")) return json(route, []);
-      return json(route, opts.waiting ?? []);
-    }
-    if (path.startsWith("/onboarding/documents/")) return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from([]) });
-    if (path.startsWith("/customers/")) return json(route, customer(path.split("/")[2], kyc));
+    if (path === "/onboarding/documents") return json(route, url.searchParams.get("profileId") ? opts.docs ?? [] : []);
     return json(route, []);
   });
-  return { engine, posts };
+  return { sent, engine };
 }
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
 });
 
-test("the desk lists this institution's applicants from omnichannel, and never reads the engine's reviews or register", async ({ page }) => {
-  const { engine } = await stub(page, {
-    apps: { MISMATCH: [app(P1, "MISMATCH")], UNCHECKED: [app(P2, "UNCHECKED", { fullName: "Test Farmer Two", externalRef: "" })], MATCH: [app(P3, "MATCH", { fullName: "Test Farmer Three" })] },
-    waiting: [doc(P3)],
-  });
+test("opens on To decide: tabs with the summary's counts, the farmers asked for by kyc=PENDING, no engine reads", async ({ page }) => {
+  const { sent, engine } = await stub(page);
   await page.goto("/token-console/kyc");
   await expect(page.getByRole("heading", { name: "KYC desk", level: 1 })).toBeVisible();
-  const main = page.locator("main");
-  for (const n of ["Test Farmer One", "Test Farmer Two", "Test Farmer Three"]) await expect(main.getByText(n).first()).toBeVisible();
-  await expect(main).toContainText("Differs: name");
-  await expect(main).not.toContainText("Reviews open");
+  for (const [name, n] of [["To decide", 2], ["Not started", 1], ["Verified", 1], ["Rejected", 1], ["Everyone", 5]] as const) {
+    await expect(page.getByRole("tab", { name: new RegExp(`^${name}\\s*${n}$`) })).toBeVisible();
+  }
+  const rows = page.getByTestId("kyc-table").locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("TEST000001");
+  await expect(rows.first()).toContainText("Matches the registry");
+  expect(sent.find((s) => s.path === "/farmers")!.query.get("kyc")).toBe("PENDING");
   await page.waitForLoadState("networkidle");
   expect(engine).toEqual([]);
 });
 
-test("a matched application with nothing waiting is not on the desk", async ({ page }) => {
-  await stub(page, { apps: { MATCH: [app(P3, "MATCH", { fullName: "Test Farmer Three" })] } });
+test("a tab asks for its status; search goes with it", async ({ page }) => {
+  const { sent } = await stub(page, { byKyc: { VERIFIED: [farmer("TEST000003", kyc("VERIFIED", { note: "Checked." }))] } });
   await page.goto("/token-console/kyc");
-  await expect(page.getByText("Nothing is waiting on a KYC decision")).toBeVisible();
-  await expect(page.locator("main").getByText("Test Farmer Three")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^Verified/ }).click();
+  await expect(page.getByTestId("kyc-row-note")).toHaveText("Checked.");
+  await page.getByPlaceholder("Grower number, name or phone").fill("TEST0003");
+  await expect.poll(() => sent.some((s) => s.path === "/farmers" && s.query.get("kyc") === "VERIFIED" && s.query.get("q") === "TEST0003")).toBe(true);
 });
 
-test("the panel shows their KYC status from omnichannel, and Approve sets it there", async ({ page }) => {
-  const { posts, engine } = await stub(page);
-  await page.goto("/token-console/kyc");
-  await page.locator("main").getByText("Test Farmer One").first().click();
-  const standing = page.getByTestId("applicant-standing");
-  await expect(standing).toContainText(INV1);
-  await expect(standing).toContainText("Pending");
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await page.getByRole("button", { name: "Approve applicant" }).click();
-  await expect(page.getByText("KYC status is now verified")).toBeVisible();
-  expect(posts).toEqual([{ path: `/investors/${INV1}/kyc-status`, body: { kycStatus: "VERIFIED" } }]);
-  await expect(standing).toContainText("Verified");
-  await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
-  expect(engine).toEqual([]);
+test("Not started: the reason as the note, Start KYC on the row, and the sweep", async ({ page }) => {
+  const { sent } = await stub(page, {
+    byKyc: { NONE: [farmer("TEST000004", kyc("NONE", { note: "needs a date of birth" }), { status: "ACTIVATED", lastFundedAt: null }), farmer("TEST000005", kyc("NONE"), { status: "REGISTERED", activatedAt: null, lastFundedAt: null })] },
+    one: farmer("TEST000004", kyc("NONE"), { status: "ACTIVATED" }),
+  });
+  await page.goto("/token-console/kyc?kyc=NONE");
+  await expect(page.getByTestId("kyc-sweep")).toBeVisible();
+  const rows = page.getByTestId("kyc-table").locator("tbody tr");
+  await expect(rows.nth(0).getByTestId("kyc-row-note")).toHaveText("needs a date of birth");
+  // Only an activated farmer can start.
+  await expect(rows.nth(1).getByRole("button", { name: "Start KYC" })).toHaveCount(0);
+  await rows.nth(0).getByRole("button", { name: "Start KYC" }).click();
+  await expect(rows.nth(0)).toContainText("To decide");
+  expect(sent.filter((s) => s.method === "POST").map((s) => s.path)).toEqual(["/farmers/TEST000004/kyc/start"]);
+  await expect(page).toHaveURL(/kyc=NONE/);
 });
 
-test("Reject sets REJECTED; a refusal shows omnichannel's reason", async ({ page }) => {
-  const { posts } = await stub(page, { decide: { status: 404, body: envelope(404, "Investor not found") } });
+test("the sweep is only on Not started", async ({ page }) => {
+  await stub(page);
   await page.goto("/token-console/kyc");
-  await page.locator("main").getByText("Test Farmer One").first().click();
-  await page.getByRole("button", { name: "Reject", exact: true }).click();
-  await page.getByRole("button", { name: "Reject applicant" }).click();
-  await expect(page.getByText("Investor not found")).toBeVisible();
-  expect(posts.map((p) => p.body)).toEqual([{ kycStatus: "REJECTED" }]);
+  await expect(page.getByTestId("kyc-table")).toBeVisible();
+  await expect(page.getByTestId("kyc-sweep")).toHaveCount(0);
 });
 
-test("someone with photos but no application has nothing to decide yet", async ({ page }) => {
-  await stub(page, { apps: {}, waiting: [doc(P2)] });
+test("a row opens the farmer: KYC, the application and the photos; Approve with a note through the farmer endpoint", async ({ page }) => {
+  const { sent } = await stub(page, {
+    docs: [{ id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1", profileId: P1, type: "SELFIE", contentType: "image/png", sizeBytes: 10, status: "PENDING_REVIEW", reviewNote: null, reviewedBy: null, reviewedAt: null, uploadedAt: "2026-11-07T08:30:00Z" }],
+  });
   await page.goto("/token-console/kyc");
-  await page.locator("main").getByText("Has not applied yet").first().click();
-  await expect(page.getByText("there is no KYC status to decide")).toBeVisible();
+  await page.getByTestId("kyc-table").getByText("Test Farmer 1").click();
+  const panel = page.getByTestId("kyc-panel");
+  await expect(panel.getByTestId("farmer-kyc")).toContainText("To decide");
+  await expect(panel.getByTestId("kyc-desk-link")).toHaveCount(0);
+  await expect(panel).toContainText("Every photo sent");
+  await expect(panel.getByRole("link", { name: "TEST000001" })).toHaveAttribute("href", "/farmers/TEST000001");
+  await panel.getByTestId("farmer-kyc").getByRole("button", { name: "Approve" }).click();
+  await page.getByLabel("Decision note").fill("Registry and photos agree.");
+  await page.locator("[role=dialog]").last().getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(panel.getByTestId("farmer-kyc")).toContainText("Verified");
+  const post = sent.find((s) => s.method === "POST")!;
+  expect(post).toMatchObject({ path: "/farmers/TEST000001/kyc/decision", body: { decision: "VERIFIED", note: "Registry and photos agree." } });
+  expect(sent.some((s) => s.path.endsWith("/kyc-status"))).toBe(false);
+  // The row moves with the decision.
+  await expect(page.getByTestId("kyc-table").locator("tbody tr").first()).toContainText("Verified");
 });
 
-test("applications that cannot be read are an error, not an empty desk", async ({ page }) => {
-  await stub(page, { appsFail: true });
+test("a farmer whose KYC has not started has no application yet, and says so", async ({ page }) => {
+  await stub(page, { apps: [], one: farmer("TEST000004", kyc("NONE"), { status: "ACTIVATED" }), byKyc: { NONE: [farmer("TEST000004", kyc("NONE"), { status: "ACTIVATED" })] } });
+  await page.goto("/token-console/kyc?kyc=NONE&grower=TEST000004");
+  await expect(page.getByTestId("no-application")).toContainText("No application yet");
+  await expect(page.getByTestId("farmer-kyc").getByRole("button", { name: "Start KYC" })).toBeVisible();
+});
+
+test("?grower= opens that farmer", async ({ page }) => {
+  await stub(page, { one: farmer("TEST000002", kyc("PENDING")) });
+  await page.goto("/token-console/kyc?kyc=PENDING&grower=TEST000002");
+  await expect(page.getByTestId("kyc-panel")).toContainText("TEST000002");
+});
+
+test("someone who may not decide sees the desk but no Approve", async ({ page }) => {
+  await page.route(/\/tok\/auth\/me$/, (route) => json(route, { email: STAFF.email, fullName: STAFF.fullName, roles: ["ACCOUNTANT"], admin: false }));
+  await stub(page);
+  await page.goto("/token-console/kyc?grower=TEST000001");
+  await expect(page.getByTestId("farmer-kyc")).toContainText("Deciding KYC needs the");
+  await expect(page.getByTestId("farmer-kyc").getByRole("button", { name: "Approve" })).toHaveCount(0);
+});
+
+test("a summary without kyc counts: the tabs show no counts and say so", async ({ page }) => {
+  await stub(page, { summary: { registered: 0, activated: 2, funded: 3, total: 5 } });
+  await page.goto("/token-console/kyc");
+  await expect(page.getByTestId("counts-not-available")).toBeVisible();
+  await expect(page.getByTestId("kyc-table")).toBeVisible();
+});
+
+test("a farmer list that cannot be read is an error, not an empty desk", async ({ page }) => {
+  await stub(page, { listFail: true });
   await page.goto("/token-console/kyc");
   await expect(page.getByText("Could not load the KYC desk")).toBeVisible();
-  await expect(page.getByText("Nothing is waiting on a KYC decision")).toHaveCount(0);
+  await expect(page.getByTestId("kyc-empty")).toHaveCount(0);
 });

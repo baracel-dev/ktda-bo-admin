@@ -6,8 +6,9 @@ import type { CustomerQuery } from "../omniApi";
 export const customerDeskLink = (q?: string | null) =>
   `/token-console/customers${q ? `?q=${encodeURIComponent(q)}` : ""}`;
 
-/** The KYC desk, opened on one applicant (their app profile). */
-export const kycDeskLink = (profileId: string) => `/token-console/kyc?profile=${encodeURIComponent(profileId)}`;
+/** The KYC desk on a farmer's KYC tab, with that farmer open. */
+export const kycDeskLink = (growerNo: string, kycStatus: string) =>
+  `/token-console/kyc?kyc=${encodeURIComponent(kycStatus)}&grower=${encodeURIComponent(growerNo)}`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

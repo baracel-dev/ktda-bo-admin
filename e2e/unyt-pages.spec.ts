@@ -38,7 +38,7 @@ const ALL_PAGES: PageCase[] = [
   { path: "funds", heading: "Institutions", empty: "No ladders built", data: ["CMA/CIS/2026/01", "KES 19,750,000.00"], fails: "tok" },
   { path: "configuration", heading: "Configuration", empty: /No schemes yet/, data: ["Bond fund scheme"], fails: "tok" },
   { path: "loans", heading: "Loans", empty: "No loan accounts yet", data: [IDS.loanContract], fails: "tok" },
-  { path: "kyc", heading: "KYC desk", empty: /REGISTRY MISMATCHES\s*0/i, data: ["Otieno Ochieng", "Born Apr 02, 1990"], fails: "omni" },
+  { path: "kyc", heading: "KYC desk", empty: "No farmer is waiting on a KYC decision.", data: ["Otieno Ochieng", "GRW-0078", "Differs from the registry"], fails: "omni" },
   { path: "customers", heading: "Customer desk", empty: "No customer found.", data: ["Alice Wanjiru"], fails: "omni", search: "alice@example.com" },
   { path: "customer-approvals", heading: "Customer approvals", empty: "Nothing is waiting for a second person", data: ["False alarm", "Alice Wanjiru"], fails: "omni" },
   { path: "transactions", heading: "Transactions", empty: "No customer has paid yet", data: ["QWE123RTY", "+KES 5,000.00"], fails: "omni" },

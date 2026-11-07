@@ -272,8 +272,18 @@ const TOK: [RegExp, Answer][] = [
   [/^\/admin\/config$/, { body: adminConfig }],
 ];
 
+/** A KTDA farmer waiting on a KYC decision (the KYC desk). */
+const kycFarmer = {
+  growerNo: "GRW-0078", fullName: "Otieno Ochieng", phone: "+254711000078", factory: "Test Factory A", status: "FUNDED",
+  registeredAt: AT, activatedAt: AT, lastFundedAt: AT, customerId: IDS.profile, clashReason: null,
+  kyc: { status: "PENDING", identityResult: "MISMATCH", startedAt: AT, decidedAt: null, note: null },
+};
+const farmersSummary = { registered: 0, activated: 0, funded: 1, total: 1, kycPending: 1, kyc: { none: 0, pending: 1, verified: 0, rejected: 0 } };
+
 /** Omnichannel's operator GET routes (path after /omni/api/operator). */
 const OMNI: [RegExp, Answer][] = [
+  [/^\/farmers$/, { body: [kycFarmer], paged: true }],
+  [/^\/farmers\/summary$/, { body: farmersSummary }],
   [/^\/onboarding\/applications\/screening-hits$/, { body: [application("MISMATCH")], paged: true }],
   [/^\/onboarding\/applications$/, { body: null, paged: true }], // by identityResult, below
   [/^\/onboarding\/documents$/, { body: documents, paged: true }],
@@ -290,6 +300,7 @@ const OMNI: [RegExp, Answer][] = [
 /** What an object endpoint answers when there is nothing to show; every list answers []. */
 const EMPTY_OBJECTS: [RegExp, unknown][] = [
   [/^\/admin\/config$/, { maxConcurrentSessions: 0 }],
+  [/^\/farmers\/summary$/, { registered: 0, activated: 0, funded: 0, total: 0, kycPending: 0, kyc: { none: 0, pending: 0, verified: 0, rejected: 0 } }],
 ];
 
 export type Mode = "empty" | "data" | "fail";

@@ -185,11 +185,39 @@ export type FarmerKyc = {
 export type KycDecisionBody = { decision: "VERIFIED" | "REJECTED"; note?: string };
 export const KYC_NOTE_MAX = 300;
 
+/** POST /farmers/kyc/sweep (202) starts KYC, in the background, for every
+ *  activated farmer still at NONE: the backlog activated before KYC existed.
+ *  409 with code KYC_SWEEP_RUNNING while one runs for this institution. GET
+ *  answers the latest sweep, 404 when none has run. INTERRUPTED: the service
+ *  restarted mid-run; a new sweep carries on where it left off. `started`
+ *  are now PENDING; `notStarted` are still NONE, each with the reason on
+ *  their own record. Both grow while RUNNING. */
+export type KycSweepStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
+export type KycSweep = {
+  id: string;
+  status: KycSweepStatus;
+  total: number;
+  started: number;
+  notStarted: number;
+  requestedBy: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  message: string | null;
+};
+export const KYC_SWEEP_PATH = "/farmers/kyc/sweep";
+export const KYC_SWEEP_RUNNING = "KYC_SWEEP_RUNNING";
+export const SWEEP_LABEL: Record<KycSweepStatus, string> = { RUNNING: "Running", COMPLETED: "Finished", FAILED: "Failed", INTERRUPTED: "Interrupted" };
+export const SWEEP_TONE: Record<KycSweepStatus, "info" | "success" | "danger" | "warning"> = { RUNNING: "info", COMPLETED: "success", FAILED: "danger", INTERRUPTED: "warning" };
+
 /** GET /farmers/summary: over the whole institution, not a filtered list.
  *  activated leaves out the funded, so the counts add up to total. `clash`
  *  (farmers held as CLASH) is missing on an older omnichannel. */
-export type FarmersSummary = { registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number };
-export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
+export type FarmersSummary = {
+  registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number;
+  /** Farmers per KYC status; missing on an omnichannel before the sweep. */
+  kyc?: { none: number; pending: number; verified: number; rejected: number };
+};
+export const SUMMARY_KEY: Record<FarmerState, "registered" | "activated" | "funded" | "clash"> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
 
 /** POST /farmers. Only growerNo, fullName and phone are required; phone may
  *  be 07…, 2547… or +2547…. 201 when this call registered the farmer, 200

@@ -461,19 +461,23 @@ export const omniCall = {
   post,
   /** A POST whose success status matters (201 created vs 200 already there). */
   postWithStatus,
-  put: async <T>(path: string, body: unknown): Promise<T> => {
-    const res = await send("PUT", path, body);
-    const text = await res.text();
-    let data: unknown = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-    if (!res.ok) throw errorFrom(res.status, data);
-    return data as T;
-  },
+  put: async <T>(path: string, body: unknown): Promise<T> => (await putWithStatus<T>(path, body)).data,
+  /** A PUT whose success status matters (202 staged for approval vs 200 applied). */
+  putWithStatus,
 };
+
+async function putWithStatus<T>(path: string, body: unknown): Promise<{ status: number; data: T }> {
+  const res = await send("PUT", path, body);
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) throw errorFrom(res.status, data);
+  return { status: res.status, data: data as T };
+}
 
 const paymentPath = (id: string) => `/payments/${encodeURIComponent(id)}`;
 const interventionPath = (id: string) => `/customers/interventions/${encodeURIComponent(id)}`;

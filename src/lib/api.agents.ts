@@ -3,8 +3,9 @@
  * omnichannel does not have them, a list or summary answers
  * `{ available: false }` and a write throws AGENTS_NOT_AVAILABLE. */
 import { OmniApiError, omniCall, type Page } from "./omniApi";
-import type { Maybe } from "./api.farmers";
-import { maybe, orUnavailable } from "./api.merchants";
+import { maybe, orUnavailable, type Maybe } from "./omniMaybe";
+import { controlledPost, withReason } from "./api.approvals";
+import type { Staged } from "./approvalsContract";
 import {
   AGENTS_PATH, AGENTS_SUMMARY_PATH, PAGE_MAX, agentPath,
   type Agent, type AgentActivity, type AgentStatus, type AgentsSummary, type RecordActivity, type RegisterAgent, type TopUp,
@@ -35,9 +36,14 @@ export const agentsApi = {
   activities: (agentNo: string, page: number, size = 20): Promise<Page<AgentActivity>> =>
     orUnavailable(omniCall.page<AgentActivity>(`${agentPath(agentNo)}/activities`, page, Math.min(size, PAGE_MAX)), AGENTS_NOT_AVAILABLE),
   register: (body: RegisterAgent) => orUnavailable(omniCall.post<Agent>(AGENTS_PATH, body), AGENTS_NOT_AVAILABLE),
-  suspend: (agentNo: string, reason: string) => orUnavailable(omniCall.post<Agent>(`${agentPath(agentNo)}/suspend`, { reason }), AGENTS_NOT_AVAILABLE),
-  reinstate: (agentNo: string) => orUnavailable(omniCall.post<Agent>(`${agentPath(agentNo)}/reinstate`, {}), AGENTS_NOT_AVAILABLE),
-  topUp: (agentNo: string, body: TopUp) => orUnavailable(omniCall.post<Agent>(`${agentPath(agentNo)}/float/top-up`, body), AGENTS_NOT_AVAILABLE),
+  /* The three below are sent for approval (202). Suspend's reason is both why
+     the agent is suspended and the request's reason. */
+  suspend: (agentNo: string, reason: string): Promise<Staged<Agent>> =>
+    orUnavailable(controlledPost<Agent>(`${agentPath(agentNo)}/suspend`, { reason }), AGENTS_NOT_AVAILABLE),
+  reinstate: (agentNo: string, reason?: string): Promise<Staged<Agent>> =>
+    orUnavailable(controlledPost<Agent>(`${agentPath(agentNo)}/reinstate`, withReason(reason)), AGENTS_NOT_AVAILABLE),
+  topUp: (agentNo: string, body: TopUp & { reason?: string }): Promise<Staged<Agent>> =>
+    orUnavailable(controlledPost<Agent>(`${agentPath(agentNo)}/float/top-up`, body), AGENTS_NOT_AVAILABLE),
   /** Answers the activity recorded (the agent's float is read again after). */
   record: (agentNo: string, body: RecordActivity) =>
     orUnavailable(omniCall.post<AgentActivity>(`${agentPath(agentNo)}/activities`, body), AGENTS_NOT_AVAILABLE),

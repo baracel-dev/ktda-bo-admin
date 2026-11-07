@@ -10,8 +10,10 @@
  *
  * Where this environment's omnichannel does not have the passthrough, a list or summary answers
  * `{ available: false }`. */
-import { OmniApiError, omniCall, type Page } from "./omniApi";
-import type { Maybe } from "./api.farmers";
+import { omniCall, type Page } from "./omniApi";
+import { maybe, orUnavailable, type Maybe } from "./omniMaybe";
+import { controlledPost, controlledPut } from "./api.approvals";
+import type { Staged } from "./approvalsContract";
 import {
   KYB_COUNT_KEY, MERCHANTS_PATH, PAGE_MAX, merchantPath,
   type BrsStatus, type KybStatus, type Merchant, type MerchantDecision, type MerchantDocumentType, type MerchantsSummary,
@@ -20,27 +22,7 @@ import {
 
 export const MERCHANTS_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not have merchants.";
 
-/** An unknown path or method: this omnichannel predates the module. */
-export const missingEndpoint = (e: unknown) => e instanceof OmniApiError && (e.status === 404 || e.status === 405 || e.status === 501);
-
-export async function maybe<T>(call: Promise<T>): Promise<Maybe<T>> {
-  try {
-    return { available: true, data: await call };
-  } catch (e) {
-    if (missingEndpoint(e)) return { available: false };
-    throw e;
-  }
-}
-
-/** For a write on a record the page just listed, a 404 is the endpoint missing. */
-export async function orUnavailable<T>(call: Promise<T>, message: string): Promise<T> {
-  try {
-    return await call;
-  } catch (e) {
-    if (missingEndpoint(e)) throw new OmniApiError((e as OmniApiError).status, message);
-    throw e;
-  }
-}
+export { maybe, missingEndpoint, orUnavailable } from "./omniMaybe";
 
 // --- the real channel-api merchants, mapped to the contract --------------------------------------------
 
@@ -148,10 +130,13 @@ export const merchantsApi = {
 
   // Writes still target omnichannel's own merchant register (follow-up: write through to the channel-api).
   register: (body: RegisterMerchant) => orUnavailable(omniCall.post<Merchant>(MERCHANTS_PATH, body), MERCHANTS_NOT_AVAILABLE),
-  update: (reference: string, body: UpdateMerchant) => orUnavailable(omniCall.put<Merchant>(merchantPath(reference), body), MERCHANTS_NOT_AVAILABLE),
+  /** A change to the settlement bank or account, the commission or the till is sent for approval. */
+  update: (reference: string, body: UpdateMerchant & { reason?: string }): Promise<Staged<Merchant>> =>
+    orUnavailable(controlledPut<Merchant>(merchantPath(reference), body), MERCHANTS_NOT_AVAILABLE),
   markDocument: (reference: string, type: MerchantDocumentType, documentRef?: string) =>
     orUnavailable(omniCall.post<Merchant>(`${merchantPath(reference)}/documents`, { type, ...(documentRef ? { reference: documentRef } : {}) }), MERCHANTS_NOT_AVAILABLE),
   checkBrs: (reference: string) => orUnavailable(omniCall.post<Merchant>(`${merchantPath(reference)}/brs-check`, {}), MERCHANTS_NOT_AVAILABLE),
-  decide: (reference: string, body: MerchantDecision) =>
-    orUnavailable(omniCall.post<Merchant>(`${merchantPath(reference)}/decision`, body), MERCHANTS_NOT_AVAILABLE),
+  /** Approving, or revoking an approval, is sent for approval; needs documents and a first rejection apply at once. */
+  decide: (reference: string, body: MerchantDecision & { reason?: string }): Promise<Staged<Merchant>> =>
+    orUnavailable(controlledPost<Merchant>(`${merchantPath(reference)}/decision`, body), MERCHANTS_NOT_AVAILABLE),
 };

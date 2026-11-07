@@ -15,6 +15,11 @@ const agent = (agentNo: string, over: Obj = {}): Obj => ({
 const LOW = agent("A-0043", { fullName: "Test Agent Two", town: "Litein", status: "LOW_FLOAT", float: { balance: 20000, limit: 200000, low: true } });
 const SUMMARY = { active: 5, lowFloat: 2, suspended: 1, onboardedThisMonth: 40, commissionThisMonth: 3200 };
 const ACTIVITY = { id: "act-1", type: "CASH_IN", amount: 2500, commission: 12.5, growerNo: "TEST000011", reference: "AG-REF-1", floatAfter: 147500, occurredAt: "2026-11-07T09:00:00Z", recordedBy: "officer@ktda.test" };
+const approval = (over: Obj = {}): Obj => ({
+  id: "ap-1", reference: "AP-10001", type: "AGENT_FLOAT_TOP_UP", title: "Top up float of agent A-0042 by KES 50,000.00",
+  target: { kind: "AGENT", reference: "A-0042", name: "Test Agent One" }, changes: [], reason: null, payload: {}, status: "PENDING",
+  maker: "ktda-operator", madeAt: "2026-11-07T10:00:00Z", checker: null, decidedAt: null, decisionNote: null, appliedAt: null, error: null, checkerRoles: ["ADMIN"], ...over,
+});
 type Answer = { status: number; body: unknown };
 const headers = (n: number) => ({ "X-Total-Count": String(n), "X-Page": "1", "X-Size": "20", "X-Total-Pages": "1" });
 
@@ -89,6 +94,7 @@ test("suspend asks for a reason; reinstate a suspended agent", async ({ page }) 
   await dialog.getByRole("button", { name: "Suspend", exact: true }).click();
   await expect(page.getByText("Test Agent One is suspended.")).toBeVisible();
   await rows.nth(1).getByRole("button", { name: "Reinstate" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Reinstate", exact: true }).click();
   await expect(page.getByText("Test Agent Three is reinstated.")).toBeVisible();
   const posts = sent.filter((s) => s.method === "POST");
   expect(posts.map((s) => [s.path, s.body])).toEqual([["/agents/A-0042/suspend", { reason: "Cash count did not agree." }], ["/agents/A-0044/reinstate", {}]]);
@@ -131,6 +137,43 @@ test("the drawer at ?focus=: details, top up, record a cash in, and the activiti
     ["/agents/A-0042/activities", { type: "CASH_IN", reference: "AG-REF-2", amount: 2500, growerNo: "TEST000011" }],
     ["/agents/A-0042/activities", { type: "ONBOARDING", reference: "AG-REF-3" }],
   ]);
+});
+
+test("a top-up sent for approval says so, with the reason, and reloads nothing", async ({ page }) => {
+  const sent = await stub(page, { post: (path, body) => path.endsWith("/float/top-up") ? { status: 202, body: { approval: approval({ reason: body.reason }) } } : undefined });
+  await page.goto("/agents?focus=A-0042");
+  const topUp = page.getByTestId("top-up");
+  await topUp.getByLabel("Top-up amount").fill("50000");
+  await topUp.getByLabel("Top-up reference").fill("BANK-REF-9");
+  await topUp.getByLabel("Top-up reason").fill("Market day tomorrow.");
+  const reads = sent.filter((s) => s.method === "GET").length;
+  await topUp.getByRole("button", { name: "Top up" }).click();
+  await expect(topUp.getByTestId("sent-for-approval")).toContainText("Sent for approval AP-10001");
+  await expect(topUp.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "/approvals?open=AP-10001");
+  await expect(page.getByText("Float topped up")).toHaveCount(0);
+  expect(sent.find((s) => s.path.endsWith("/float/top-up"))!.body).toEqual({ amount: 50000, reference: "BANK-REF-9", reason: "Market day tomorrow." });
+  expect(sent.filter((s) => s.method === "GET").length).toBe(reads);
+});
+
+test("a suspension sent for approval says so in the modal", async ({ page }) => {
+  await stub(page, { post: (path) => path.endsWith("/suspend") ? { status: 202, body: { approval: approval({ reference: "AP-10003", type: "AGENT_SUSPEND", title: "Suspend agent A-0042" }) } } : undefined });
+  await page.goto("/agents");
+  await page.getByTestId("agents-table").locator("tbody tr").nth(0).getByRole("button", { name: "Suspend" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Reason").fill("Cash count did not agree.");
+  await dialog.getByRole("button", { name: "Suspend", exact: true }).click();
+  await expect(page.getByTestId("sent-for-approval")).toContainText("Sent for approval AP-10003");
+  await expect(page.getByText("is suspended.")).toHaveCount(0);
+});
+
+test("a top-up while one is waiting (APPROVAL_PENDING) links to the open request", async ({ page }) => {
+  await stub(page, { post: (path) => path.endsWith("/float/top-up") ? { status: 409, body: envelope(409, "A top-up for A-0042 is already waiting: AP-10001", "APPROVAL_PENDING") } : undefined });
+  await page.goto("/agents?focus=A-0042");
+  const topUp = page.getByTestId("top-up");
+  await topUp.getByLabel("Top-up amount").fill("1000");
+  await topUp.getByLabel("Top-up reference").fill("BANK-REF-10");
+  await topUp.getByRole("button", { name: "Top up" }).click();
+  await expect(topUp.getByTestId("approval-ref-link")).toHaveAttribute("href", "/approvals?open=AP-10001");
 });
 
 test("a cash in the float cannot cover shows omnichannel's reason", async ({ page }) => {

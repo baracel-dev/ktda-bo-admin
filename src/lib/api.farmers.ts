@@ -4,6 +4,8 @@
  * environment's omnichannel does not have them, a read answers
  * `{ available: false }` and the register throws NOT_AVAILABLE. */
 import { OmniApiError, omniCall, type Page } from "./omniApi";
+import { controlledPost } from "./api.approvals";
+import type { Staged } from "./approvalsContract";
 import {
   FARMERS_MAX_SIZE, FARMERS_PATH, FARMERS_SUMMARY_PATH, NOT_AVAILABLE, farmerByCustomerPath, farmerPath, notBuiltYet,
   KYC_SWEEP_PATH, KYC_SWEEP_RUNNING,
@@ -67,8 +69,8 @@ export const farmersApi = {
    *  pending or decided comes back unchanged. */
   startKyc: (growerNo: string): Promise<Farmer> => notBuiltAsUnavailable(omniCall.post<Farmer>(`${farmerPath(growerNo)}/kyc/start`, {})),
   /** Compliance's decision, recorded on the farmer with the note and set on the ledger's standing. */
-  decideKyc: (growerNo: string, body: KycDecisionBody): Promise<Farmer> =>
-    notBuiltAsUnavailable(omniCall.post<Farmer>(`${farmerPath(growerNo)}/kyc/decision`, body)),
+  decideKyc: (growerNo: string, body: KycDecisionBody & { reason?: string }): Promise<Staged<Farmer>> =>
+    notBuiltAsUnavailable(controlledPost<Farmer>(`${farmerPath(growerNo)}/kyc/decision`, body)),
   /** The latest KYC sweep, or null when none has ever run (or this
    *  omnichannel has none: a GET cannot tell the two apart). */
   latestSweep: async (): Promise<KycSweep | null> => {

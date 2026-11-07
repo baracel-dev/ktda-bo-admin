@@ -6,6 +6,9 @@ import type { CustomerQuery } from "../omniApi";
 export const customerDeskLink = (q?: string | null) =>
   `/token-console/customers${q ? `?q=${encodeURIComponent(q)}` : ""}`;
 
+/** The KYC desk, opened on one applicant (their app profile). */
+export const kycDeskLink = (profileId: string) => `/token-console/kyc?profile=${encodeURIComponent(profileId)}`;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A Kenyan number as people type it (0712…, 712…, 254712…, +254 712…) in

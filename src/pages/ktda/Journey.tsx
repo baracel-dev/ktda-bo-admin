@@ -83,10 +83,15 @@ export default function Journey() {
         ) : !farmers.data?.available ? (
           <div data-testid="not-available"><NotePanel tone="info" title="Not available on this environment yet">{NOT_AVAILABLE.replace(/^Not available on this environment yet: /, "")}</NotePanel></div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className={`grid gap-3 ${farmers.data.data.kycPending !== undefined ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
             {FARMER_STATES.map((st) => (
               <StatCard key={st} label={STATE_LABEL[st]} value={units(farmers.data!.available ? farmers.data!.data[SUMMARY_KEY[st]] ?? 0 : 0)} hint={STATE_MEANS[st]} to={`/farmers?state=${st}`} />
             ))}
+            {farmers.data.data.kycPending !== undefined && (
+              <div data-testid="kyc-pending-tile">
+                <StatCard label="KYC to decide" value={units(farmers.data.data.kycPending)} hint="Activated farmers waiting on a compliance decision" to="/farmers?kyc=PENDING" />
+              </div>
+            )}
           </div>
         )}
         {farmers.data?.available && (farmers.data.data.clash ?? 0) > 0 && (

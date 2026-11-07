@@ -11,6 +11,7 @@ import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
 import { NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, type Farmer } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { FarmerKyc } from "./FarmerKyc";
 
 /* One farmer of this institution: their record and stage, their wallet
    balance and every movement in it, all from omnichannel (which reads the
@@ -92,6 +93,8 @@ export default function FarmerDetail() {
       />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+        <FarmerKyc farmer={farmer} onChanged={(f) => profile.setData({ found: true, farmer: f })} />
         <section aria-label="Wallet" className="min-w-0">
           {wallet.error === NOT_AVAILABLE ? (
             <NotAvailable />
@@ -170,6 +173,7 @@ export default function FarmerDetail() {
             </>
           )}
         </section>
+        </div>
 
         <Card className="h-fit p-4">
           <h2 className="mb-3 text-sm font-semibold text-text">Details</h2>

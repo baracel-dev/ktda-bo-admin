@@ -40,7 +40,8 @@ test.describe("signed in", () => {
     await menu.getByRole("button", { name: "People", exact: true }).click();
     await expect(menu.getByRole("link", { name: "Farmers", exact: true })).toHaveAttribute("href", "/farmers");
     await expect(menu.getByRole("link", { name: "Farmer journey", exact: true })).toHaveAttribute("href", "/journey");
-    await expect(menu.getByRole("link", { name: "Onboarding review", exact: true })).toHaveAttribute("href", "/kyc-queue");
+    await expect(menu.getByRole("link", { name: "KYC desk", exact: true })).toHaveAttribute("href", "/token-console/kyc");
+    await expect(menu.getByRole("link", { name: "Customer approvals", exact: true })).toHaveAttribute("href", "/token-console/customer-approvals");
     await expect(menu.getByRole("link", { name: "Messages", exact: true })).toHaveAttribute("href", "/campaigns");
     await expect(menu.getByRole("link", { name: "Bulk onboarding", exact: true })).toHaveAttribute("href", "/bulk/onboarding");
 
@@ -79,10 +80,11 @@ test.describe("signed in", () => {
   test("the platform's own tools are refused by their address, and nowhere in the menu", async ({ page }) => {
     const menu = nav(page);
     for (const section of ["People", "Money", "Admin"]) await menu.getByRole("button", { name: section, exact: true }).click();
-    for (const label of ["Configuration", "Tariffs", "Change approvals", "Engine users", "Platform settings", "Feature flags", "Engine overview", "Institutions"]) {
+    for (const label of ["Configuration", "Tariffs", "Change approvals", "Engine users", "Platform settings", "Feature flags", "Engine overview", "Institutions",
+      "Onboarding review", "KYC periodic review", "Dynamic review", "Screening"]) {
       await expect(menu.getByRole("link", { name: label, exact: true })).toHaveCount(0);
     }
-    expect(REMOVED_PAGES.size).toBe(9);
+    expect(REMOVED_PAGES.size).toBe(13);
     for (const path of REMOVED_PAGES) {
       await page.goto(path);
       await expect(page.getByTestId("page-removed")).toContainText("Not part of this back office");
@@ -105,13 +107,8 @@ test.describe("signed in", () => {
 
   test("a group's count is the sum of its entries' counts", async ({ page }) => {
     const menu = nav(page);
-    const people = menu.getByRole("button", { name: "People", exact: true });
-    await expect(people).toContainText(/\d/);
-    await people.click();
-    const onboarding = menu.getByRole("link", { name: "Onboarding review", exact: true });
-    await expect(onboarding).toHaveAttribute("title", /^Onboarding review: \d+ waiting$/);
-    const n = Number((await onboarding.getAttribute("title"))!.match(/(\d+) waiting/)![1]);
-    await expect(people).toHaveText(new RegExp(`People\\s*${n}$`));
+    // People's only counted entry was the demo onboarding review, now removed.
+    await expect(menu.getByRole("button", { name: "People", exact: true })).toHaveText(/^\s*People\s*$/);
     const money = menu.getByRole("button", { name: "Money", exact: true });
     await money.click();
 

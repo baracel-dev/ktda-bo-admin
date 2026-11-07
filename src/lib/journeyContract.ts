@@ -144,12 +144,51 @@ export type Farmer = {
   customerId?: string | null;
   /** Why a CLASH farmer is held; null otherwise. Older omnichannel leaves it out. */
   clashReason?: string | null;
+  /** Where the farmer's KYC stands. Older omnichannel leaves it out. */
+  kyc?: FarmerKyc | null;
 };
+
+/* ---- Farmer KYC ----
+   Opening a farmer's wallet puts their register details (names, national ID,
+   date of birth) through the population registry and screening and marks
+   them PENDING; compliance then decides. A farmer the check could not start
+   for (no national ID, no date of birth, the check failed) stays NONE with
+   the reason in `note`, and can be started again. KYC does not hold payments
+   back for now. */
+
+export type KycStatus = "NONE" | "PENDING" | "VERIFIED" | "REJECTED";
+export const KYC_STATUSES: KycStatus[] = ["NONE", "PENDING", "VERIFIED", "REJECTED"];
+export const KYC_LABEL: Record<KycStatus, string> = { NONE: "Not started", PENDING: "To decide", VERIFIED: "Verified", REJECTED: "Rejected" };
+export const KYC_TONE: Record<KycStatus, "neutral" | "warning" | "success" | "danger"> = { NONE: "neutral", PENDING: "warning", VERIFIED: "success", REJECTED: "danger" };
+
+/** What the population registry said. UNCHECKED where no registry is set up. */
+export type KycIdentityResult = "MATCH" | "MISMATCH" | "NOT_FOUND" | "DECEASED" | "UNCHECKED";
+export const IDENTITY_LABEL: Record<KycIdentityResult, string> = {
+  MATCH: "Matches the registry", MISMATCH: "Differs from the registry", NOT_FOUND: "Not in the registry",
+  DECEASED: "Registry records them as deceased", UNCHECKED: "Registry not checked",
+};
+export const IDENTITY_TONE: Record<KycIdentityResult, "success" | "danger" | "warning" | "neutral"> = {
+  MATCH: "success", MISMATCH: "danger", NOT_FOUND: "danger", DECEASED: "danger", UNCHECKED: "warning",
+};
+
+/** `note`: why it has not started (NONE), or compliance's note on the decision. */
+export type FarmerKyc = {
+  status: KycStatus;
+  identityResult: KycIdentityResult | null;
+  startedAt: string | null;
+  decidedAt: string | null;
+  note: string | null;
+};
+
+/** POST /farmers/{growerNo}/kyc/decision. note up to 300 characters. 409
+ *  when KYC has not started (the message says why). */
+export type KycDecisionBody = { decision: "VERIFIED" | "REJECTED"; note?: string };
+export const KYC_NOTE_MAX = 300;
 
 /** GET /farmers/summary: over the whole institution, not a filtered list.
  *  activated leaves out the funded, so the counts add up to total. `clash`
  *  (farmers held as CLASH) is missing on an older omnichannel. */
-export type FarmersSummary = { registered: number; activated: number; funded: number; total: number; clash?: number };
+export type FarmersSummary = { registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number };
 export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
 
 /** POST /farmers. Only growerNo, fullName and phone are required; phone may
@@ -159,12 +198,14 @@ export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTER
  *  (no code beyond the status; the message says what). */
 export type RegisterFarmer = { growerNo: string; fullName: string; phone: string; nationalId?: string; factory?: string };
 
-/** GET /farmers?state=&q=&page=&size= : a plain array, paged by the X-Total-*
+/** GET /farmers?state=&kyc=&q=&page=&size= : a plain array, paged by the X-Total-*
  *  headers, page from 1, size up to 100. q matches grower number and name
  *  (contains, any case) and the phone however it is typed. */
 export const FARMERS_PATH = "/farmers";
 export const FARMERS_SUMMARY_PATH = "/farmers/summary";
 export const farmerPath = (growerNo: string) => `${FARMERS_PATH}/${encodeURIComponent(growerNo)}`;
+/** GET: the farmer behind an omnichannel profile; 404 when it is not one of this institution's farmers. */
+export const farmerByCustomerPath = (customerId: string) => `${FARMERS_PATH}/by-customer/${encodeURIComponent(customerId)}`;
 export const FARMERS_MAX_SIZE = 100;
 
 /** GET /farmers/{growerNo}/wallet. `balances` is empty and `walletOpen` false

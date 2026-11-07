@@ -6,7 +6,8 @@
 import { OmniApiError, omniCall, type Page } from "./omniApi";
 import {
   FARMERS_MAX_SIZE, FARMERS_PATH, FARMERS_SUMMARY_PATH, NOT_AVAILABLE, farmerByCustomerPath, farmerPath, notBuiltYet,
-  type Farmer, type FarmerState, type FarmersSummary, type KycDecisionBody, type KycStatus, type RegisterFarmer,
+  KYC_SWEEP_PATH, KYC_SWEEP_RUNNING,
+  type Farmer, type FarmerState, type FarmersSummary, type KycDecisionBody, type KycStatus, type KycSweep, type RegisterFarmer,
 } from "./journeyContract";
 
 export type FarmersQuery = { state?: FarmerState | null; kyc?: KycStatus | null; q?: string; page?: number; size?: number };
@@ -66,6 +67,31 @@ export const farmersApi = {
   /** Compliance's decision, recorded on the farmer with the note and set on the ledger's standing. */
   decideKyc: (growerNo: string, body: KycDecisionBody): Promise<Farmer> =>
     notBuiltAsUnavailable(omniCall.post<Farmer>(`${farmerPath(growerNo)}/kyc/decision`, body)),
+  /** The latest KYC sweep, or null when none has ever run (or this
+   *  omnichannel has none: a GET cannot tell the two apart). */
+  latestSweep: async (): Promise<KycSweep | null> => {
+    try {
+      const s = await omniCall.get<KycSweep | unknown>(KYC_SWEEP_PATH);
+      // Anything that is not a sweep (a proxy's fallback page, say) is none.
+      return s && typeof s === "object" && !Array.isArray(s) && typeof (s as KycSweep).status === "string" ? (s as KycSweep) : null;
+    } catch (e) {
+      if (e instanceof OmniApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+  /** Start the sweep. `running` when one was already under way: the sweep
+   *  answered is then that one, read back. A 404 here is NOT_AVAILABLE. */
+  startSweep: async (): Promise<{ sweep: KycSweep | null; alreadyRunning: boolean }> => {
+    try {
+      return { sweep: await omniCall.post<KycSweep>(KYC_SWEEP_PATH, {}), alreadyRunning: false };
+    } catch (e) {
+      if (e instanceof OmniApiError && e.status === 409 && e.code === KYC_SWEEP_RUNNING) {
+        return { sweep: await farmersApi.latestSweep(), alreadyRunning: true };
+      }
+      if (notBuilt(e)) throw new OmniApiError((e as OmniApiError).status, NOT_AVAILABLE);
+      throw e;
+    }
+  },
   register: async (body: RegisterFarmer): Promise<Registered> => {
     try {
       const { status, data } = await omniCall.postWithStatus<Farmer>(FARMERS_PATH, body);

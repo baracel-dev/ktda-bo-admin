@@ -35,13 +35,14 @@ const GROWER = "[A-Za-z0-9._~%-]+";
 // and the farmer journey: the farmers list (paged by the X-Total-* headers
 // passed back below), its counts per stage, one farmer and their wallet
 // (balances, and the movements paged the same way), the farmer behind a
-// profile, starting and deciding a farmer's KYC, and the single-farmer
+// profile, starting and deciding a farmer's KYC, the KYC sweep over the
+// backlog (start it, and read the latest), and the single-farmer
 // register (omnichannel answers 404 where it does not have them yet).
 // Nothing under fx, market or content: those are investing features KTDA does
 // not offer, and omnichannel refuses them for an institution without them.
 const ALLOWED = {
-  POST: new RegExp(`^/omni/api/operator/(link-codes|notifications|investors/${UUID}/kyc-status|onboarding/documents/${UUID}/review|onboarding/applications/rescreen|customers/${UUID}/(suspend|reinstate|close)|customers/interventions/${UUID}/(approve|reject)|payments/${UUID}/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)|reporting/alerts/${UUID}/(assign|close)|reporting/runs/(snapshot|surveillance)|bulk-loads/upload|bulk-loads/${UUID}/(process|release)|farmers|farmers/${GROWER}/kyc/(start|decision))$`),
-  GET: new RegExp(`^/omni/api/operator/(onboarding/(applications|applications/screening-hits|documents|documents/${UUID}/content)|support/tickets|customers|customers/interventions|customers/${UUID}(/(timeline|messages|activity|interventions))?|transactions|transactions/summary|payments/issues|reporting/reports/(transactions|holdings|token-supply|suspicious-activity)\\.csv|reporting/alerts|reporting/alerts/${UUID}|reporting/runs|bulk-loads|bulk-loads/onboarding-status|bulk-loads/${UUID}(/reconciliation|/exceptions|/rows)?|institutions|institution/settings|farmers|farmers/summary|farmers/${GROWER}(/wallet(/movements)?)?|farmers/by-customer/${UUID})$`),
+  POST: new RegExp(`^/omni/api/operator/(link-codes|notifications|investors/${UUID}/kyc-status|onboarding/documents/${UUID}/review|onboarding/applications/rescreen|customers/${UUID}/(suspend|reinstate|close)|customers/interventions/${UUID}/(approve|reject)|payments/${UUID}/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)|reporting/alerts/${UUID}/(assign|close)|reporting/runs/(snapshot|surveillance)|bulk-loads/upload|bulk-loads/${UUID}/(process|release)|farmers|farmers/kyc/sweep|farmers/${GROWER}/kyc/(start|decision))$`),
+  GET: new RegExp(`^/omni/api/operator/(onboarding/(applications|applications/screening-hits|documents|documents/${UUID}/content)|support/tickets|customers|customers/interventions|customers/${UUID}(/(timeline|messages|activity|interventions))?|transactions|transactions/summary|payments/issues|reporting/reports/(transactions|holdings|token-supply|suspicious-activity)\\.csv|reporting/alerts|reporting/alerts/${UUID}|reporting/runs|bulk-loads|bulk-loads/onboarding-status|bulk-loads/${UUID}(/reconciliation|/exceptions|/rows)?|institutions|institution/settings|farmers|farmers/summary|farmers/${GROWER}(/wallet(/movements)?)?|farmers/by-customer/${UUID}|farmers/kyc/sweep)$`),
 };
 const FORWARDED = ["accept", "content-type", "authorization"];
 // Lists are paged: the totals travel in these headers, the body stays an array.

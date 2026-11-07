@@ -212,8 +212,12 @@ export const SWEEP_TONE: Record<KycSweepStatus, "info" | "success" | "danger" | 
 /** GET /farmers/summary: over the whole institution, not a filtered list.
  *  activated leaves out the funded, so the counts add up to total. `clash`
  *  (farmers held as CLASH) is missing on an older omnichannel. */
-export type FarmersSummary = { registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number };
-export const SUMMARY_KEY: Record<FarmerState, keyof FarmersSummary> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
+export type FarmersSummary = {
+  registered: number; activated: number; funded: number; total: number; clash?: number; kycPending?: number;
+  /** Farmers per KYC status; missing on an omnichannel before the sweep. */
+  kyc?: { none: number; pending: number; verified: number; rejected: number };
+};
+export const SUMMARY_KEY: Record<FarmerState, "registered" | "activated" | "funded" | "clash"> = { REGISTERED: "registered", ACTIVATED: "activated", FUNDED: "funded", CLASH: "clash" };
 
 /** POST /farmers. Only growerNo, fullName and phone are required; phone may
  *  be 07…, 2547… or +2547…. 201 when this call registered the farmer, 200

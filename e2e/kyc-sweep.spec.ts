@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { envelope, json, signIn, STAFF } from "./stubs";
 
-/* The KYC sweep on Farmers (KycSweep.tsx): POST /farmers/kyc/sweep starts KYC
+/* The KYC sweep on the KYC desk's Not started tab (KycSweep.tsx): POST /farmers/kyc/sweep starts KYC
  * for the backlog, GET reads the latest, polled while it runs. A 409
  * KYC_SWEEP_RUNNING shows the running one; a 404 on GET is "never run", on
  * POST "not available on this environment yet". Stubbed. */
@@ -44,7 +44,7 @@ test.beforeEach(async ({ page }) => {
 
 test("never run: says so, and the start is offered to a decider", async ({ page }) => {
   await stub(page);
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await expect(page.getByTestId("sweep-never")).toHaveText("No sweep has run yet.");
   await expect(page.getByRole("button", { name: "Start KYC for all activated farmers" })).toBeEnabled();
 });
@@ -57,7 +57,7 @@ test("start, poll while it runs, then show the outcome and refresh the farmers",
       { status: 200, body: sweep("COMPLETED", 8, 2) },
     ],
   });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await expect(page.getByTestId("sweep-never")).toBeVisible();
   await page.getByRole("button", { name: "Start KYC for all activated farmers" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Start", exact: true }).click();
@@ -79,7 +79,7 @@ test("one already running (409) reads as such and shows that sweep", async ({ pa
     gets: [{ status: 404, body: envelope(404, "No sweep") }, { status: 200, body: sweep("RUNNING", 3, 0) }],
     post: { status: 409, body: envelope(409, "A KYC sweep is already running", "KYC_SWEEP_RUNNING") },
   });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await page.getByRole("button", { name: "Start KYC for all activated farmers" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Start", exact: true }).click();
   await expect(page.getByTestId("sweep-already-running")).toBeVisible();
@@ -88,7 +88,7 @@ test("one already running (409) reads as such and shows that sweep", async ({ pa
 
 test("the latest sweep stays on the page with its date", async ({ page }) => {
   await stub(page, { gets: [{ status: 200, body: sweep("COMPLETED", 8, 2) }] });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   const state = page.getByTestId("sweep-state");
   await expect(state).toContainText("Finished");
   await expect(state).toContainText("Last run");
@@ -98,14 +98,14 @@ test("the latest sweep stays on the page with its date", async ({ page }) => {
 
 test("an interrupted or failed sweep says so", async ({ page }) => {
   await stub(page, { gets: [{ status: 200, body: sweep("FAILED", 2, 0, { message: "Registry unreachable" }) }] });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await expect(page.getByTestId("sweep-state")).toContainText("Failed");
   await expect(page.getByTestId("sweep-message")).toHaveText("Registry unreachable");
 });
 
 test("a 404 on POST is not available on this environment yet", async ({ page }) => {
   await stub(page, { post: { status: 404, body: envelope(404, "Not Found") } });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await page.getByRole("button", { name: "Start KYC for all activated farmers" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Start", exact: true }).click();
   await expect(page.getByTestId("sweep-not-available")).toContainText("Not available on this environment yet");
@@ -115,7 +115,7 @@ test("a 404 on POST is not available on this environment yet", async ({ page }) 
 test("someone who may not decide KYC sees the last sweep but cannot start one", async ({ page }) => {
   await page.route(/\/tok\/auth\/me$/, (route) => json(route, { email: STAFF.email, fullName: STAFF.fullName, roles: ["ACCOUNTANT"], admin: false }));
   await stub(page, { gets: [{ status: 200, body: sweep("COMPLETED", 8, 2) }] });
-  await page.goto("/farmers");
+  await page.goto("/token-console/kyc?kyc=NONE");
   await expect(page.getByTestId("sweep-state")).toBeVisible();
   await expect(page.getByRole("button", { name: "Start KYC for all activated farmers" })).toHaveCount(0);
 });

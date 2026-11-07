@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { UserPlus } from "lucide-react";
 import { Badge, Button, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, Tabs } from "../../ui";
@@ -11,7 +11,6 @@ import {
   type Farmer, type FarmerState, type KycStatus, type RegisterFarmer,
 } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
-import { KycSweep } from "./KycSweep";
 
 /* This institution's farmers and where each is in the journey (registered,
    activated, funded), from omnichannel, which answers only for this back
@@ -65,9 +64,6 @@ export default function FarmersByStage() {
   const { reload } = list;
   useEffect(() => { void reload(); }, [state, kyc, q, page, reload]);
   const summary = useAsyncData(() => farmersApi.summary());
-  const { reload: reloadSummary } = summary;
-  // A KYC sweep that ends has moved farmers from NONE to PENDING.
-  const sweepEnded = useCallback(() => { void reload(); void reloadSummary(); }, [reload, reloadSummary]);
 
   const result = list.data;
   const data = result?.available ? result.data : null;
@@ -116,8 +112,6 @@ export default function FarmersByStage() {
               </button>
             )}
           </FilterBar>
-
-          <KycSweep onFinished={sweepEnded} />
 
           {!data ? <Skeleton className="h-48" /> : data.items.length === 0 ? (
             <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="farmers-empty">

@@ -22,7 +22,8 @@ import { kycDeskLink } from "../../lib/tokenConsole/customerSearch";
 
 const activated = (f: Farmer) => f.status === "ACTIVATED" || f.status === "FUNDED";
 
-export function FarmerKyc({ farmer, onChanged }: { farmer: Farmer; onChanged: (f: Farmer) => void }) {
+/** `onDesk`: shown on the KYC desk, so no link back to it. */
+export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farmer; onChanged: (f: Farmer) => void; onDesk?: boolean }) {
   const toast = useToast();
   const { user } = useAuth();
   const mayDecide = canDecideKyc(user?.tokRoles);
@@ -82,8 +83,8 @@ export function FarmerKyc({ farmer, onChanged }: { farmer: Farmer; onChanged: (f
         ) : (
           <span className="text-[12.5px] text-text-soft">Deciding KYC needs the {KYC_DECIDER_ROLES.map((r) => label(r)).join(" or ")} role.</span>
         ))}
-        {farmer.customerId && status !== "NONE" && (
-          <Link to={kycDeskLink(farmer.customerId)} className="text-[12.5px] font-medium text-primary-600 hover:text-primary-700" data-testid="kyc-desk-link">
+        {!onDesk && (
+          <Link to={kycDeskLink(farmer.growerNo, status)} className="text-[12.5px] font-medium text-primary-600 hover:text-primary-700" data-testid="kyc-desk-link">
             Open on the KYC desk →
           </Link>
         )}

@@ -1,12 +1,21 @@
-/* This institution's merchants on omnichannel's operator API (scoped by the
- * proxy). See merchantsAgentsContract.ts. Where this environment's
- * omnichannel does not have them, a list or summary answers
- * `{ available: false }` and a write throws MERCHANTS_NOT_AVAILABLE. */
+/* This institution's merchants for the back office.
+ *
+ * READ (list/summary/one) is a demo-safe bridge to the REAL self-onboarded merchants, which live in the
+ * channel-api (the merchant/agent backend), surfaced through omnichannel's operator passthrough
+ * `/api/operator/ktda/merchants`. They are mapped here into the merchantsAgentsContract shape the page
+ * renders. WRITES (register/decide/BRS/docs/edit) still go to omnichannel's own merchant register — a
+ * channel-api merchant has no record there yet, so a decision answers "not available" rather than
+ * silently touching the wrong store. Making KYB decisions write through to the channel-api is the
+ * follow-up to this read-only bridge.
+ *
+ * Where this environment's omnichannel does not have the passthrough, a list or summary answers
+ * `{ available: false }`. */
 import { OmniApiError, omniCall, type Page } from "./omniApi";
 import type { Maybe } from "./api.farmers";
 import {
-  MERCHANTS_PATH, MERCHANTS_SUMMARY_PATH, PAGE_MAX, merchantPath,
-  type KybStatus, type Merchant, type MerchantDecision, type MerchantDocumentType, type MerchantsSummary, type RegisterMerchant, type UpdateMerchant,
+  KYB_COUNT_KEY, MERCHANTS_PATH, PAGE_MAX, merchantPath,
+  type BrsStatus, type KybStatus, type Merchant, type MerchantDecision, type MerchantDocumentType, type MerchantsSummary,
+  type MerchantType, type RegisterMerchant, type UpdateMerchant,
 } from "./merchantsAgentsContract";
 
 export const MERCHANTS_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not have merchants.";
@@ -33,26 +42,111 @@ export async function orUnavailable<T>(call: Promise<T>, message: string): Promi
   }
 }
 
+// --- the real channel-api merchants, mapped to the contract --------------------------------------------
+
+/** The channel-api's merchant, as omnichannel's /ktda/merchants passthrough returns it. */
+type ChannelMerchant = {
+  id: string;
+  name: string;
+  brsNo: string;
+  businessType: string;
+  category: string;
+  /** lowercase: approved | in_review | pending | needs_documents | info_requested | rejected */
+  kyb: string;
+  kybSubmittedAt: string | null;
+  commissionBps: number;
+  walletId: string;
+  createdAt: string;
+  tills: { till: string; outlet: string; town: string; label: string }[];
+};
+
+const CHANNEL_MERCHANTS_PATH = "/ktda/merchants";
+
+const KYB_MAP: Record<string, KybStatus> = {
+  approved: "APPROVED", in_review: "IN_REVIEW", pending: "IN_REVIEW",
+  needs_documents: "NEEDS_DOCUMENTS", info_requested: "NEEDS_DOCUMENTS", rejected: "REJECTED",
+};
+const kybOf = (k: string): KybStatus => KYB_MAP[(k ?? "").toLowerCase()] ?? "IN_REVIEW";
+
+const typeOf = (category: string, businessType: string): MerchantType => {
+  const s = `${category} ${businessType}`.toLowerCase();
+  return s.includes("agro") ? "AGRO_DEALER" : s.includes("shop") || s.includes("retail") || s.includes("kiosk") ? "SHOP" : "OTHER";
+};
+
+const DOC_TYPES: MerchantDocumentType[] = ["CERTIFICATE_OF_REGISTRATION", "KRA_PIN_CERTIFICATE", "DIRECTOR_ID_COPIES", "BANK_LETTER"];
+
+function toMerchant(m: ChannelMerchant): Merchant {
+  const kyb = kybOf(m.kyb);
+  const approved = kyb === "APPROVED";
+  const till = m.tills[0];
+  const brsStatus: BrsStatus = approved ? "VERIFIED" : "UNCHECKED";
+  return {
+    reference: m.brsNo,
+    name: m.name,
+    type: typeOf(m.category, m.businessType),
+    town: till?.town ?? null,
+    county: null,
+    ownerName: null,
+    ownerPhone: null,
+    tillNo: till?.till ?? null,
+    brs: { registrationNo: m.brsNo, status: brsStatus, registeredName: approved ? m.name : null, registeredType: null, registeredOwner: null, checkedAt: approved ? m.kybSubmittedAt : null },
+    kyb: { status: kyb, decidedAt: approved ? m.kybSubmittedAt : null, decidedBy: null, note: null },
+    settlement: { bank: null, accountMasked: null },
+    commissionRate: typeof m.commissionBps === "number" ? m.commissionBps / 10000 : null,
+    vouchers: { accepts: false, categories: [] },
+    documents: DOC_TYPES.map((type) => ({ type, received: approved, receivedAt: approved ? m.kybSubmittedAt : null, reference: null })),
+    sales30d: null,
+    transactions30d: null,
+    joinedAt: m.createdAt,
+    updatedAt: null,
+  };
+}
+
+/** Every real merchant, newest first as the channel-api orders it, mapped to the contract. */
+async function realMerchants(): Promise<Merchant[]> {
+  return (await omniCall.list<ChannelMerchant>(CHANNEL_MERCHANTS_PATH)).map(toMerchant);
+}
+
 export type MerchantsQuery = { status?: KybStatus | null; q?: string; page?: number; size?: number };
 
 export const merchantsApi = {
-  list: ({ status, q, page = 1, size = 20 }: MerchantsQuery = {}): Promise<Maybe<Page<Merchant>>> => {
-    const p = new URLSearchParams();
-    if (status) p.set("status", status);
-    if (q?.trim()) p.set("q", q.trim());
-    const qs = p.toString();
-    return maybe(omniCall.page<Merchant>(`${MERCHANTS_PATH}${qs ? `?${qs}` : ""}`, page, Math.min(size, PAGE_MAX)));
-  },
-  summary: (): Promise<Maybe<MerchantsSummary>> => maybe(omniCall.get<MerchantsSummary>(MERCHANTS_SUMMARY_PATH)),
-  /** One merchant, or null when the reference is not this institution's. */
-  one: async (reference: string): Promise<Merchant | null> => {
-    try {
-      return await omniCall.get<Merchant>(merchantPath(reference));
-    } catch (e) {
-      if (e instanceof OmniApiError && e.status === 404) return null;
-      throw e;
-    }
-  },
+  list: ({ status, q, page = 1, size = 20 }: MerchantsQuery = {}): Promise<Maybe<Page<Merchant>>> =>
+    maybe((async () => {
+      let all = await realMerchants();
+      if (status) all = all.filter((m) => m.kyb.status === status);
+      const needle = q?.trim().toLowerCase();
+      if (needle) {
+        all = all.filter((m) =>
+          [m.name, m.reference, m.town, m.tillNo, m.type].filter(Boolean).join(" ").toLowerCase().includes(needle));
+      }
+      const sz = Math.min(size, PAGE_MAX);
+      const total = all.length;
+      const pages = Math.max(1, Math.ceil(total / sz));
+      const items = all.slice((page - 1) * sz, (page - 1) * sz + sz);
+      return { items, page, pages, total };
+    })()),
+
+  summary: (): Promise<Maybe<MerchantsSummary>> =>
+    maybe((async () => {
+      const all = await realMerchants();
+      const byStatus = { inReview: 0, needsDocuments: 0, approved: 0, rejected: 0 };
+      for (const m of all) byStatus[KYB_COUNT_KEY[m.kyb.status]] += 1;
+      const approved = all.filter((m) => m.kyb.status === "APPROVED");
+      return {
+        approved: byStatus.approved,
+        agroDealers: approved.filter((m) => m.type === "AGRO_DEALER").length,
+        waitingForKyb: byStatus.inReview + byStatus.needsDocuments,
+        acceptVouchers: approved.filter((m) => m.vouchers.accepts).length,
+        sales30d: null,
+        byStatus,
+      };
+    })()),
+
+  /** One merchant by reference (its BRS number), or null when it is not one of this institution's. */
+  one: async (reference: string): Promise<Merchant | null> =>
+    (await realMerchants()).find((m) => m.reference === reference) ?? null,
+
+  // Writes still target omnichannel's own merchant register (follow-up: write through to the channel-api).
   register: (body: RegisterMerchant) => orUnavailable(omniCall.post<Merchant>(MERCHANTS_PATH, body), MERCHANTS_NOT_AVAILABLE),
   update: (reference: string, body: UpdateMerchant) => orUnavailable(omniCall.put<Merchant>(merchantPath(reference), body), MERCHANTS_NOT_AVAILABLE),
   markDocument: (reference: string, type: MerchantDocumentType, documentRef?: string) =>

@@ -127,6 +127,16 @@ test("the farmer journey's reads, a farmer's wallet and the single register pass
   expect((await call("/omni/api/operator/farmers/kyc/sweep")).res.status).toBe(200);
   expect((await call("/omni/api/operator/farmers/kyc/sweep/x")).res.status).toBe(404);
   expect((await call("/omni/api/operator/farmers/kyc/sweep", { method: "PUT" })).res.status).toBe(404);
+  // Merchants and agents: reads, and the staff actions only.
+  for (const path of ["merchants?status=IN_REVIEW&page=1&size=20", "merchants/summary", "merchants/M-10200", "agents?status=LOW_FLOAT", "agents/summary", "agents/A-0042", "agents/A-0042/activities?page=1&size=20"]) {
+    expect((await call(`/omni/api/operator/${path}`)).res.status, path).toBe(200);
+  }
+  for (const path of ["merchants", "merchants/M-10200/documents", "merchants/M-10200/brs-check", "merchants/M-10200/decision", "agents", "agents/A-0042/suspend", "agents/A-0042/reinstate", "agents/A-0042/float/top-up", "agents/A-0042/activities"]) {
+    expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
+  }
+  for (const [method, path] of [["POST", "merchants/M-10200"], ["GET", "merchants/M-10200/decision"], ["PUT", "merchants/M-10200"], ["DELETE", "agents/A-0042"], ["POST", "agents/A-0042/float"], ["GET", "agents/A-0042/x"]]) {
+    expect((await call(`/omni/api/operator/${path}`, { method })).res.status, `${method} ${path}`).toBe(404);
+  }
   // One farmer is a read, not something to post to.
   expect((await call("/omni/api/operator/farmers/TEST000001", { method: "POST" })).res.status).toBe(404);
   const deeper = await call("/omni/api/operator/farmers/TEST000001/wallet", { method: "POST" });

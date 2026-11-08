@@ -120,6 +120,16 @@ test("the farmer journey's reads, a farmer's wallet and the single register pass
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision", { method: "POST" })).res.status).toBe(200);
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/decision")).res.status).toBe(404);
   expect((await call("/omni/api/operator/farmers/TEST000001/kyc/other", { method: "POST" })).res.status).toBe(404);
+  // The approvals queue: reads, and approve, reject, cancel only.
+  for (const path of ["approvals?status=PENDING&page=1&size=20", "approvals/summary", "approvals/AP-10001"]) {
+    expect((await call(`/omni/api/operator/${path}`)).res.status, path).toBe(200);
+  }
+  for (const path of ["approvals/AP-10001/approve", "approvals/AP-10001/reject", "approvals/AP-10001/cancel"]) {
+    expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
+  }
+  for (const [method, path] of [["POST", "approvals"], ["POST", "approvals/AP-10001"], ["GET", "approvals/AP-10001/approve"], ["PUT", "approvals/AP-10001"], ["POST", "approvals/AP-10001/apply"]]) {
+    expect((await call(`/omni/api/operator/${path}`, { method })).res.status, `${method} ${path}`).toBe(404);
+  }
   // Assisted onboarding and a farmer's photos.
   expect((await call("/omni/api/operator/farmers/TEST000001/assisted-onboarding", { method: "POST" })).res.status).toBe(200);
   expect((await call("/omni/api/operator/farmers/TEST000001/documents", { method: "POST" })).res.status).toBe(200);

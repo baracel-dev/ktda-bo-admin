@@ -12,6 +12,9 @@ import {
   type Farmer, type KycDecisionBody,
 } from "../../lib/journeyContract";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { ErrorWithApproval, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { withReason } from "../../lib/api.approvals";
+import { REASON_MAX, type Approval, type Staged } from "../../lib/approvalsContract";
 import { kycDeskLink } from "../../lib/tokenConsole/customerSearch";
 
 /* A farmer's KYC on their profile: where it stands, what the population
@@ -97,6 +100,7 @@ export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farme
         <KycDecisionModal
           name={farmer.fullName ?? farmer.growerNo}
           decision={deciding}
+          needsApproval={deciding === "VERIFIED" && !!kyc?.identityResult && kyc.identityResult !== "MATCH"}
           decide={(body) => farmersApi.decideKyc(farmer.growerNo, body)}
           onCancel={() => setDeciding(null)}
           onDone={(f) => {
@@ -110,22 +114,36 @@ export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farme
   );
 }
 
-/** Approve or reject a farmer's KYC with a note kept on the farmer. Shared
- *  with the KYC desk. */
-export function KycDecisionModal({ name, decision, decide, onCancel, onDone }: {
+/** Approve or reject a farmer's KYC with a note kept on the farmer.
+ *  Verifying a farmer the registry did not match is sent for approval: the
+ *  modal then says so, and nothing is reloaded (nothing changed yet). */
+export function KycDecisionModal({ name, decision, needsApproval = false, decide, onCancel, onDone }: {
   name: string;
   decision: KycDecisionBody["decision"];
-  decide: (body: KycDecisionBody) => Promise<Farmer>;
+  /** The registry did not match: verifying needs a second person. */
+  needsApproval?: boolean;
+  decide: (body: KycDecisionBody & { reason?: string }) => Promise<Staged<Farmer>>;
   onCancel: () => void;
   onDone: (f: Farmer) => void;
 }) {
   const [note, setNote] = useState("");
-  const act = useAction((body: KycDecisionBody) => decide(body));
+  const [reason, setReason] = useState("");
+  const [sent, setSent] = useState<Approval | null>(null);
+  const act = useAction((body: KycDecisionBody & { reason?: string }) => decide(body));
   const verifying = decision === "VERIFIED";
   const submit = async () => {
-    const f = await act.run({ decision, ...(note.trim() ? { note: note.trim() } : {}) });
-    if (f) onDone(f);
+    const r = await act.run({ decision, ...(note.trim() ? { note: note.trim() } : {}), ...(verifying ? withReason(reason) : {}) });
+    if (!r) return;
+    if (r.approval) setSent(r.approval);
+    else onDone(r.applied);
   };
+  if (sent) {
+    return (
+      <Modal open onClose={onCancel} size="sm" title="Sent for approval" footer={<Button size="sm" onClick={onCancel}>Done</Button>}>
+        <SentForApproval approval={sent} />
+      </Modal>
+    );
+  }
   return (
     <Modal
       open
@@ -154,7 +172,15 @@ export function KycDecisionModal({ name, decision, decide, onCancel, onDone }: {
           placeholder={verifying ? "Details checked against the registry." : "Why this was refused."}
         />
       </Field>
-      {act.error && <NotePanel tone="danger" className="mt-3">{act.error}</NotePanel>}
+      {verifying && (
+        <div className="mt-3">
+          {needsApproval && <p className="mb-2 text-[12.5px] text-warning" data-testid="needs-approval">The registry did not match, so verifying needs a second person's approval.</p>}
+          <Field label="Reason (optional)" hint={REASON_HINT}>
+            <Textarea rows={2} aria-label="Reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+        </div>
+      )}
+      {act.error && <ErrorWithApproval message={act.error} className="mt-3 text-[13px] text-danger" />}
     </Modal>
   );
 }

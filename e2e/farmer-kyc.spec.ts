@@ -139,6 +139,36 @@ test.describe("farmer profile", () => {
     expect(engine).toEqual([]);
   });
 
+  test("verifying a farmer the registry did not match is sent for approval, with the reason", async ({ page }) => {
+    const { sent } = await stub(page, {
+      one: farmer("TEST000014", "ACTIVATED", kyc("PENDING", { identityResult: "MISMATCH" })),
+      decision: { status: 202, body: { approval: {
+        id: "ap-4", reference: "AP-10004", type: "FARMER_KYC_OVERRIDE", title: "Verify farmer TEST000014 despite registry MISMATCH",
+        target: { kind: "FARMER", reference: "TEST000014", name: "Test Farmer 4" }, changes: [], reason: "Seen the ID in person.", payload: {}, status: "PENDING",
+        maker: "ktda-operator", madeAt: "2026-11-07T10:00:00Z", checker: null, decidedAt: null, decisionNote: null, appliedAt: null, error: null, checkerRoles: ["COMPLIANCE"],
+      } } },
+    });
+    await page.goto("/farmers/TEST000014");
+    const k = page.getByTestId("farmer-kyc");
+    await k.getByRole("button", { name: "Approve" }).click();
+    await expect(page.getByTestId("needs-approval")).toBeVisible();
+    await page.getByLabel("Reason", { exact: true }).fill("Seen the ID in person.");
+    await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
+    await expect(page.getByTestId("sent-for-approval")).toContainText("Sent for approval AP-10004");
+    expect(sent.find((s) => s.method === "POST")!.body).toEqual({ decision: "VERIFIED", reason: "Seen the ID in person." });
+    await page.getByRole("button", { name: "Done" }).click();
+    // Nothing changed yet: still waiting on a decision.
+    await expect(k).toContainText("To decide");
+  });
+
+  test("a rejection has no reason field: it applies at once", async ({ page }) => {
+    await stub(page, { one: farmer("TEST000014", "ACTIVATED", kyc("PENDING", { identityResult: "MISMATCH" })) });
+    await page.goto("/farmers/TEST000014");
+    await page.getByTestId("farmer-kyc").getByRole("button", { name: "Reject" }).click();
+    await expect(page.getByLabel("Reason", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("needs-approval")).toHaveCount(0);
+  });
+
   test("a decision omnichannel refuses (409) shows why", async ({ page }) => {
     await stub(page, { decision: { status: 409, body: envelope(409, "KYC has not started: needs a national ID") } });
     await page.goto("/farmers/TEST000001");

@@ -12,6 +12,9 @@ import {
 } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { ErrorWithApproval, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { withReason } from "../../lib/api.approvals";
+import { REASON_MAX, type Approval } from "../../lib/approvalsContract";
 
 /* Agents (prototype 3.9): the people who onboard farmers with a camera,
    upgrade Tier 1 wallets, and handle cash in and cash out. From omnichannel
@@ -57,9 +60,9 @@ export default function Agents() {
   const focus = params.get("focus");
   const [typed, setTyped] = useState(q);
   const [registering, setRegistering] = useState(false);
-  const [suspending, setSuspending] = useState<Agent | null>(null);
+  const [changing, setChanging] = useState<{ agent: Agent; action: "suspend" | "reinstate" } | null>(null);
+  const setSuspending = (a: Agent) => setChanging({ agent: a, action: "suspend" });
   const toast = useToast();
-  const reinstate = useAction((agentNo: string) => agentsApi.reinstate(agentNo));
 
   const set = (next: { status?: Tab; q?: string; page?: number; focus?: string | null }) => {
     // From the address as it is now, not as this render saw it: a delayed
@@ -103,13 +106,6 @@ export default function Agents() {
   const s = summary.data?.available ? summary.data.data : null;
   const unavailable = (list.data && !list.data.available) || (summary.data && !summary.data.available);
 
-  const runReinstate = async (a: Agent) => {
-    const after = await reinstate.run(a.agentNo);
-    if (!after) return;
-    toast.push(`${a.fullName} is reinstated.`);
-    refresh();
-  };
-
   return (
     <div>
       <PageHeader
@@ -141,7 +137,6 @@ export default function Agents() {
           <FilterBar>
             <SearchInput value={typed} onChange={setTyped} placeholder="Name, agent no. or town" className="w-72" />
           </FilterBar>
-          {reinstate.error && <p role="alert" className="mb-3 text-[13px] text-danger">{reinstate.error}</p>}
 
           {!data ? <Skeleton className="h-48" /> : data.items.length === 0 ? (
             <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="agents-empty">
@@ -175,7 +170,7 @@ export default function Agents() {
                       <td className="px-3 py-2"><Badge tone={AGENT_STATUS_TONE[a.status] ?? "neutral"}>{AGENT_STATUS_LABEL[a.status] ?? a.status}</Badge></td>
                       <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                         {a.status === "SUSPENDED"
-                          ? <Button size="sm" variant="outline" disabled={reinstate.pending} onClick={() => void runReinstate(a)}>Reinstate</Button>
+                          ? <Button size="sm" variant="outline" onClick={() => setChanging({ agent: a, action: "reinstate" })}>Reinstate</Button>
                           : <Button size="sm" variant="outline" onClick={() => setSuspending(a)}>Suspend</Button>}
                       </td>
                     </tr>
@@ -198,11 +193,12 @@ export default function Agents() {
       )}
 
       {focus && <AgentDrawer key={focus} agentNo={focus} onClose={() => set({ focus: null })} onChanged={refresh} onSuspend={setSuspending} />}
-      {suspending && (
-        <SuspendModal
-          agent={suspending}
-          onClose={() => setSuspending(null)}
-          onDone={(a) => { setSuspending(null); toast.push(`${a.fullName} is suspended.`); refresh(); }}
+      {changing && (
+        <StatusModal
+          agent={changing.agent}
+          action={changing.action}
+          onClose={() => setChanging(null)}
+          onDone={() => { setChanging(null); toast.push(`${changing.agent.fullName} is ${changing.action === "suspend" ? "suspended" : "reinstated"}.`); refresh(); }}
         />
       )}
       {registering && (
@@ -212,31 +208,51 @@ export default function Agents() {
   );
 }
 
-function SuspendModal({ agent, onClose, onDone }: { agent: Agent; onClose: () => void; onDone: (a: Agent) => void }) {
+/** Suspend (a reason is needed: why, for the agent's record and the
+ *  checker) or reinstate (a reason is optional). Either is sent for approval;
+ *  the modal then says so and nothing is reloaded. */
+function StatusModal({ agent, action, onClose, onDone }: { agent: Agent; action: "suspend" | "reinstate"; onClose: () => void; onDone: (a: Agent) => void }) {
   const [reason, setReason] = useState("");
-  const act = useAction(() => agentsApi.suspend(agent.agentNo, reason.trim()));
+  const [sent, setSent] = useState<Approval | null>(null);
+  const suspending = action === "suspend";
+  const act = useAction(() => suspending ? agentsApi.suspend(agent.agentNo, reason.trim()) : agentsApi.reinstate(agent.agentNo, reason));
   const submit = async () => {
-    const a = await act.run();
-    if (a) onDone(a);
+    const r = await act.run();
+    if (!r) return;
+    if (r.approval) setSent(r.approval);
+    else onDone(r.applied);
   };
+  if (sent) {
+    return (
+      <Modal open onClose={onClose} size="sm" title="Sent for approval" footer={<Button size="sm" onClick={onClose}>Done</Button>}>
+        <SentForApproval approval={sent} />
+      </Modal>
+    );
+  }
   return (
     <Modal
       open
       onClose={act.pending ? () => undefined : onClose}
       size="sm"
-      title={`Suspend ${agent.fullName}?`}
+      title={suspending ? `Suspend ${agent.fullName}?` : `Reinstate ${agent.fullName}?`}
       footer={
         <>
           <Button variant="ghost" size="sm" disabled={act.pending} onClick={onClose}>Cancel</Button>
-          <Button variant="danger" size="sm" disabled={act.pending || !reason.trim()} onClick={() => void submit()}>{act.pending ? "Suspending…" : "Suspend"}</Button>
+          <Button variant={suspending ? "danger" : "primary"} size="sm" disabled={act.pending || (suspending && !reason.trim())} onClick={() => void submit()}>
+            {act.pending ? "Sending…" : suspending ? "Suspend" : "Reinstate"}
+          </Button>
         </>
       }
     >
-      <p className="mb-4 text-sm text-text-soft">They can no longer handle cash or onboard farmers until reinstated. Who suspended them and why is recorded.</p>
-      <Field label="Reason">
-        <Textarea rows={3} aria-label="Reason" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Why they are suspended." />
+      <p className="mb-4 text-sm text-text-soft">
+        {suspending
+          ? "They can no longer handle cash or onboard farmers until reinstated. A second person approves it; who asked and why is recorded."
+          : "They can handle cash and onboard farmers again. A second person approves it."}
+      </p>
+      <Field label={suspending ? "Reason" : "Reason (optional)"} hint={REASON_HINT}>
+        <Textarea rows={3} aria-label="Reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} placeholder={suspending ? "Why they are suspended." : undefined} />
       </Field>
-      {act.error && <NotePanel tone="danger" className="mt-3">{act.error}</NotePanel>}
+      {act.error && <ErrorWithApproval message={act.error} className="mt-3 text-[13px] text-danger" />}
     </Modal>
   );
 }
@@ -389,17 +405,24 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
   );
 }
 
+/** A top-up is sent for approval: on a 202 the form says so and nothing is
+ *  reloaded (the float has not changed yet). */
 function TopUpForm({ agentNo, onDone }: { agentNo: string; onDone: (amount: number) => void }) {
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
-  const act = useAction(() => agentsApi.topUp(agentNo, { amount: Number(amount), reference: reference.trim() }));
+  const [reason, setReason] = useState("");
+  const [sent, setSent] = useState<Approval | null>(null);
+  const act = useAction(() => agentsApi.topUp(agentNo, { amount: Number(amount), reference: reference.trim(), ...withReason(reason) }));
   const ok = positive(amount) && !!reference.trim();
   const submit = async () => {
-    const done = await act.run();
-    if (done === undefined) return;
-    onDone(Number(amount));
+    setSent(null);
+    const r = await act.run();
+    if (!r) return;
+    if (r.approval) setSent(r.approval);
+    else onDone(Number(amount));
     setAmount("");
     setReference("");
+    setReason("");
   };
   return (
     <form className="rounded-[var(--radius-lg)] border border-border p-3" data-testid="top-up" onSubmit={(e) => { e.preventDefault(); if (ok) void submit(); }}>
@@ -407,8 +430,10 @@ function TopUpForm({ agentNo, onDone }: { agentNo: string; onDone: (amount: numb
       <div className="grid gap-2">
         <Field label="Amount (KES)"><Input aria-label="Top-up amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Reference"><Input aria-label="Top-up reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Bank or M-Pesa reference" /></Field>
-        <Button size="sm" type="submit" disabled={!ok || act.pending}>{act.pending ? "Topping up…" : "Top up"}</Button>
-        {act.error && <p role="alert" className="text-[12.5px] text-danger">{act.error}</p>}
+        <Field label="Reason (optional)" hint={REASON_HINT}><Input aria-label="Top-up reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Button size="sm" type="submit" disabled={!ok || act.pending}>{act.pending ? "Sending…" : "Top up"}</Button>
+        {act.error && <ErrorWithApproval message={act.error} className="text-[12.5px] text-danger" />}
+        {sent && <SentForApproval approval={sent} />}
       </div>
     </form>
   );

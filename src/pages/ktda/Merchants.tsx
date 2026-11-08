@@ -14,6 +14,9 @@ import {
 } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { ErrorWithApproval, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { withReason } from "../../lib/api.approvals";
+import { REASON_MAX, type Approval, type Staged } from "../../lib/approvalsContract";
 
 /* Merchants (prototype 3.8): agro-dealers and shops where farmers spend, each
    checked against the Business Registration Service before they can take
@@ -317,16 +320,22 @@ function MerchantDrawer({ reference, onClose, onChanged }: { reference: string; 
   );
 }
 
+/** Approving, and revoking an approval, are sent for approval: the modal then
+ *  says so and nothing is reloaded. Needs documents and a first rejection
+ *  apply at once. */
 function DecisionModal({ name, decision, revoking, decide, onCancel, onDone }: {
   name: string;
   decision: MerchantDecision["decision"];
   revoking: boolean;
-  decide: (body: MerchantDecision) => Promise<Merchant>;
+  decide: (body: MerchantDecision & { reason?: string }) => Promise<Staged<Merchant>>;
   onCancel: () => void;
   onDone: (m: Merchant) => void;
 }) {
   const [note, setNote] = useState("");
-  const act = useAction((body: MerchantDecision) => decide(body));
+  const [reason, setReason] = useState("");
+  const [sent, setSent] = useState<Approval | null>(null);
+  const controlled = decision === "APPROVED" || revoking;
+  const act = useAction((body: MerchantDecision & { reason?: string }) => decide(body));
   // Revoking an approval needs a note.
   const needsNote = revoking;
   const title = revoking ? "Revoke this approval?" : decision === "APPROVED" ? "Approve this merchant?" : decision === "REJECTED" ? "Reject this merchant?" : "Ask for documents?";
@@ -336,9 +345,18 @@ function DecisionModal({ name, decision, revoking, decide, onCancel, onDone }: {
     : decision === "REJECTED" ? `${name} will not be able to take payments.`
     : `${name} stays waiting until the missing documents arrive.`;
   const submit = async () => {
-    const m = await act.run({ decision, ...(note.trim() ? { note: note.trim() } : {}) });
-    if (m) onDone(m);
+    const r = await act.run({ decision, ...(note.trim() ? { note: note.trim() } : {}), ...(controlled ? withReason(reason) : {}) });
+    if (!r) return;
+    if (r.approval) setSent(r.approval);
+    else onDone(r.applied);
   };
+  if (sent) {
+    return (
+      <Modal open onClose={onCancel} size="sm" title="Sent for approval" footer={<Button size="sm" onClick={onCancel}>Done</Button>}>
+        <SentForApproval approval={sent} />
+      </Modal>
+    );
+  }
   return (
     <Modal
       open
@@ -358,7 +376,15 @@ function DecisionModal({ name, decision, revoking, decide, onCancel, onDone }: {
       <Field label={needsNote ? "Note (needed)" : "Note"} hint="Kept with the decision.">
         <Textarea rows={3} aria-label="Decision note" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} />
       </Field>
-      {act.error && <NotePanel tone="danger" className="mt-3">{act.error}</NotePanel>}
+      {controlled && (
+        <div className="mt-3">
+          <p className="mb-2 text-[12.5px] text-text-soft">A second person approves this before it takes effect.</p>
+          <Field label="Reason (optional)" hint={REASON_HINT}>
+            <Textarea rows={2} aria-label="Reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+        </div>
+      )}
+      {act.error && <ErrorWithApproval message={act.error} className="mt-3 text-[13px] text-danger" />}
     </Modal>
   );
 }
@@ -385,8 +411,10 @@ const formOf = (m: Merchant): Form => ({
 function MerchantFormModal({ merchant, onClose, onDone }: { merchant?: Merchant; onClose: () => void; onDone: (m: Merchant) => void }) {
   const editing = !!merchant;
   const [f, setF] = useState<Form>(merchant ? formOf(merchant) : BLANK);
+  const [reason, setReason] = useState("");
+  const [sent, setSent] = useState<Approval | null>(null);
   const rate = f.commission.trim() ? Number(f.commission) / 100 : undefined;
-  const act = useAction(async () => {
+  const act = useAction(async (): Promise<Staged<Merchant>> => {
     const common = {
       name: f.name.trim(), type: f.type, town: f.town.trim(), county: f.county.trim(), ownerName: f.ownerName.trim(),
       ownerPhone: f.ownerPhone.trim(), tillNo: f.tillNo.trim(),
@@ -395,10 +423,10 @@ function MerchantFormModal({ merchant, onClose, onDone }: { merchant?: Merchant;
     };
     if (merchant) {
       return merchantsApi.update(merchant.reference, {
-        ...common, settlement: { bank: f.bank.trim(), ...(f.account.trim() ? { account: f.account.trim() } : {}) },
+        ...common, settlement: { bank: f.bank.trim(), ...(f.account.trim() ? { account: f.account.trim() } : {}) }, ...withReason(reason),
       });
     }
-    return merchantsApi.register({ ...common, registrationNo: f.registrationNo.trim(), settlement: { bank: f.bank.trim(), account: f.account.trim() } } satisfies RegisterMerchant);
+    return { applied: await merchantsApi.register({ ...common, registrationNo: f.registrationNo.trim(), settlement: { bank: f.bank.trim(), account: f.account.trim() } } satisfies RegisterMerchant) };
   });
   const text = (k: keyof Form, labelText: string, extra: Record<string, string> = {}, hint?: string) => (
     <Field label={labelText} hint={hint}>
@@ -413,9 +441,18 @@ function MerchantFormModal({ merchant, onClose, onDone }: { merchant?: Merchant;
     : null;
   const touched = editing || Object.entries(f).some(([k, v]) => typeof v === "string" && k !== "type" && v.trim() !== "");
   const submit = async () => {
-    const m = await act.run();
-    if (m) onDone(m);
+    const r = await act.run();
+    if (!r) return;
+    if (r.approval) setSent(r.approval);
+    else onDone(r.applied);
   };
+  if (sent) {
+    return (
+      <Modal open onClose={onClose} title="Sent for approval" footer={<Button onClick={onClose}>Done</Button>}>
+        <SentForApproval approval={sent} />
+      </Modal>
+    );
+  }
   return (
     <Modal
       open
@@ -466,9 +503,16 @@ function MerchantFormModal({ merchant, onClose, onDone }: { merchant?: Merchant;
           )}
         </div>
         {touched && problem && <p className="text-[12.5px] text-text-soft sm:col-span-2" data-testid="form-problem">{problem}</p>}
+        {editing && (
+          <div className="sm:col-span-2">
+            <Field label="Reason (optional)" hint="Changing the settlement bank or account, the commission or the till needs a second person's approval; this is shown to them.">
+              <Textarea rows={2} aria-label="Reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} />
+            </Field>
+          </div>
+        )}
         {act.error && (
           <div className="sm:col-span-2">
-            {act.error === MERCHANTS_NOT_AVAILABLE ? <NotAvailable /> : <p role="alert" className="text-[13px] text-danger">{act.error}</p>}
+            {act.error === MERCHANTS_NOT_AVAILABLE ? <NotAvailable /> : <ErrorWithApproval message={act.error} />}
           </div>
         )}
       </div>

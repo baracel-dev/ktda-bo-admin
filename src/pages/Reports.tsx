@@ -1,269 +1,210 @@
-import { useMemo, useState } from "react";
-import { getReports, generateReport } from "../lib/api";
-import { REPORT_CATEGORY_LABELS, ROLE_LABELS as MOCK_ROLE_LABELS, type ReportDef, type ReportCategory } from "../mock";
-import {
-  PageHeader, Card, Badge, Button, DataTable, Tabs, Skeleton, EmptyState, Modal,
-  FilterBar, SearchInput, useToast, formatDateTime, type Column,
-} from "../ui";
-import { FileBarChart2, Download, RefreshCw } from "lucide-react";
-import { useAuth, ADMIN_USERS, ROLE_LABELS } from "../lib/auth";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { FileDown, FileSpreadsheet, Printer } from "lucide-react";
+import { Button, Card, ColumnChart, FilterBar, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, StatCard } from "../ui";
 import { useAsyncData } from "../lib/useAsyncData";
+import { units } from "../lib/tokenConsole/format";
+import { SourceError } from "../components/tokenconsole/ConsoleTable";
+import {
+  agentCommissions, approvals, farmerRegister, kycDecisions, paymentRuns,
+  type Loaded, type RegisterFilters, type ReportData,
+} from "../lib/reports";
+import { download, fileStem, nairobiDateTime, toCsv, toXlsx, type Row } from "../lib/reportExport";
+import {
+  CHANNEL_LABEL, FARMER_STATES, KYC_LABEL, KYC_STATUSES, ONBOARDING_CHANNELS, STATE_LABEL,
+  type FarmerState, type KycStatus, type OnboardingChannel,
+} from "../lib/journeyContract";
 
-const CATEGORY_TONE: Record<ReportCategory, "info" | "accent" | "warning" | "success" | "neutral" | "danger"> = {
-  regulatory: "accent",
-  finance: "info",
-  operations: "neutral",
-  compliance: "warning",
-  distributions: "success",
-  processes: "info",
-  audit_mis: "danger",
-  miscellaneous: "neutral",
-};
+/* Reports (prototype 3.17): "Standard reports you can reshape and export.
+   The data belongs to KTDA; exports carry no vendor lock-in" (REQ 5.8, 6.8).
+   On the left the reports, each with a line on what it holds; on the right
+   the one chosen (?report=), with "N rows · generated <date>", CSV, Excel and
+   PDF exports made in the browser from the rows on screen, a chart where it
+   has one, and the table. Every report reads omnichannel, which answers only
+   for this institution (lib/reports.ts). Dates are Nairobi's. */
 
-const FREQUENCY_LABEL: Record<ReportDef["frequency"], string> = {
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-  quarterly: "Quarterly",
-  on_demand: "On demand",
+type ReportKey = "payment-runs" | "farmer-register" | "agent-commissions" | "approvals" | "kyc-decisions";
+type Entry = { key: string; title: string; description: string; live: boolean };
+
+const REPORTS: Entry[] = [
+  { key: "payment-runs", title: "Payment runs", description: "Every run with lines, net paid, deductions and status.", live: true },
+  { key: "transactions", title: "Transactions summary", description: "Wallet activity for the last 30 days, grouped the way you choose.", live: false },
+  { key: "farmer-register", title: "Farmer register", description: "Every farmer with their stage, KYC and how they joined.", live: true },
+  { key: "agent-commissions", title: "Agent commissions", description: "Month-to-date commission and onboardings per agent.", live: true },
+  { key: "approvals", title: "Approvals", description: "Every request for a second person's approval, and its outcome.", live: true },
+  { key: "kyc-decisions", title: "KYC decisions", description: "Every farmer verified or rejected, with the registry's answer.", live: true },
+  { key: "merchant-settlements", title: "Merchant settlements", description: "Sales and settlement accounts for approved merchants, last 30 days.", live: false },
+  { key: "disputes", title: "Disputes and SLA", description: "Every dispute with its age and outcome.", live: false },
+  { key: "build", title: "Build your own", description: "Pick the transaction fields and filters you need. (REQ 5.8.3)", live: false },
+];
+const NOT_YET: Record<string, string> = {
+  transactions: "Not yet available: no read across every farmer's wallet movements exists yet.",
+  "merchant-settlements": "Not yet available: merchants and their sales live in the merchant service, which does not report them here yet.",
+  disputes: "Not yet available: disputes are not built yet.",
+  build: "Not yet available: the report builder (REQ 5.8.3) comes later.",
 };
 
 export default function Reports() {
-  const { role } = useAuth();
-  const toast = useToast();
-  const { data: reports, loading, error, reload, setData } = useAsyncData(
-    () => (role ? getReports(role) : Promise.resolve([])),
-  );
-  const [category, setCategory] = useState<"all" | ReportCategory>("all");
-  const [query, setQuery] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [active, setActive] = useState<ReportDef | null>(null);
-  const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
-
-  const me = role ? ADMIN_USERS[role].name : "";
-
-  const tabs = useMemo(() => {
-    const present = new Set((reports ?? []).map((r) => r.category));
-    return [
-      { key: "all", label: "All", count: reports?.length ?? 0 },
-      ...(Object.keys(REPORT_CATEGORY_LABELS) as ReportCategory[])
-        .filter((c) => present.has(c))
-        .map((c) => ({ key: c, label: REPORT_CATEGORY_LABELS[c], count: (reports ?? []).filter((r) => r.category === c).length })),
-    ];
-  }, [reports]);
-
-  const rows = (reports ?? []).filter((r) => {
-    if (category !== "all" && r.category !== category) return false;
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      r.name.toLowerCase().includes(q) ||
-      r.description.toLowerCase().includes(q) ||
-      r.columns.some((c) => c.label.toLowerCase().includes(q))
-    );
-  });
-
-  const openDetail = (r: ReportDef) => {
-    setActive(r);
-    setSelectedCols(new Set(r.columns.map((c) => c.key)));
-  };
-
-  const toggleCol = (key: string) => {
-    setSelectedCols((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const run = async (report: ReportDef, columnKeys?: string[]) => {
-    setBusyId(report.id);
-    try {
-      const updated = await generateReport(report.id, me, columnKeys);
-      setData((prev) => (prev ? prev.map((r) => (r.id === updated.id ? { ...updated } : r)) : prev));
-      setActive((prev) => (prev && prev.id === updated.id ? { ...updated } : prev));
-      toast.push(`${report.name} generated${columnKeys ? ` with ${columnKeys.length} columns` : ""}`, "success");
-    } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Could not generate the report", "error");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const columns: Column<ReportDef>[] = [
-    {
-      key: "name",
-      header: "Report",
-      className: "min-w-[260px]",
-      render: (r) => (
-        <div>
-          <div className="text-text font-medium">{r.name}</div>
-          <div className="text-xs text-text-soft mt-0.5 line-clamp-2 leading-snug" title={r.description}>{r.description}</div>
-        </div>
-      ),
-    },
-    { key: "category", header: "Category", className: "whitespace-nowrap", render: (r) => <Badge tone={CATEGORY_TONE[r.category]}>{REPORT_CATEGORY_LABELS[r.category]}</Badge> },
-    // How often it runs, then what comes out: format and width.
-    { key: "frequency", header: "Cadence · format", className: "whitespace-nowrap", render: (r) => (
-      <div>
-        <div className="text-text">{FREQUENCY_LABEL[r.frequency]}</div>
-        <div className="mt-0.5 text-xs text-text-faint"><span className="tabular">{r.format}</span> · <span className="tabular">{r.columns.length}</span> columns</div>
-      </div>
-    ), hideOnMobile: true },
-    { key: "columns", header: "Columns", className: "text-right whitespace-nowrap", render: (r) => <span className="text-sm tabular text-text-soft">{r.columns.length}</span>, hideOnMobile: true, defaultHidden: true },
-    { key: "format", header: "Format", className: "whitespace-nowrap", render: (r) => <span className="tabular text-text-soft">{r.format}</span>, hideOnMobile: true, defaultHidden: true },
-    {
-      key: "lastRun",
-      header: "Last generated",
-      className: "whitespace-nowrap",
-      render: (r) =>
-        r.lastRun ? (
-          <div className="text-xs">
-            <div className="tabular text-text">{formatDateTime(r.lastRun.at)}</div>
-            {/* System actors carry long names ("System (Distribution Engine)"): the actor truncates, the size never does. */}
-            <div className="flex max-w-[210px] gap-1 text-text-faint mt-0.5">
-              <span className="truncate" title={`by ${r.lastRun.by}`}>by {r.lastRun.by}</span>
-              <span className="shrink-0">· {r.lastRun.sizeKb} KB{r.lastRun.columnCount ? ` · ${r.lastRun.columnCount} cols` : ""}</span>
-            </div>
-          </div>
-        ) : (
-          <span className="text-xs text-text-faint">Never run</span>
-        ),
-      hideOnMobile: true,
-    },
-    {
-      key: "actions",
-      header: "",
-      className: "whitespace-nowrap",
-      render: (r) => (
-        <div className="flex items-center gap-2 justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!r.lastRun}
-            onClick={(e) => {
-              e.stopPropagation();
-              toast.push(`${r.name} (${r.format}) download started`, "info");
-            }}
-          >
-            <Download size={13} />
-            Download
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const [params, setParams] = useSearchParams();
+  const chosen = REPORTS.find((r) => r.key === params.get("report")) ?? REPORTS[0];
+  const pick = (key: string) => setParams(() => new URLSearchParams({ report: key }), { replace: true });
 
   return (
     <div>
       <PageHeader
+        eyebrow="KTDA"
         title="Reports"
-        tooltip="Each report is scoped by role — you only see the packs your SOP responsibilities cover. Click a report to see every available column and generate with the subset you need."
-        subtitle={`Regulatory, finance and operational reporting packs available to ${role ? ROLE_LABELS[role] : "your role"}.`}
+        subtitle="Standard reports you can reshape and export. The data belongs to KTDA; exports carry no vendor lock-in."
       />
-
-      {error && (
-        <Card className="p-5 mb-6 flex items-center justify-between">
-          <span className="text-sm text-danger">{error}</span>
-          <Button size="sm" variant="outline" onClick={reload}>Retry</Button>
-        </Card>
-      )}
-
-      {loading && (
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-9 w-72" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      )}
-
-      {!loading && reports && reports.length === 0 && (
-        <Card>
-          <EmptyState
-            icon={<FileBarChart2 size={20} />}
-            title="No reports for your role"
-            body="Report packs are scoped to SOP responsibilities. If you're missing one you need, ask a System Admin to review the report's access list."
-          />
-        </Card>
-      )}
-
-      {!loading && reports && reports.length > 0 && (
-        <>
-          <FilterBar>
-            <Tabs tabs={tabs} active={category} onChange={(k) => setCategory(k as typeof category)} />
-            <SearchInput value={query} onChange={setQuery} placeholder="Search reports and columns…" className="w-64 sm:ml-auto" />
-          </FilterBar>
-          <DataTable columns={columns} rows={rows} onRowClick={openDetail} columnPicker emptyLabel="No reports match" />
-        </>
-      )}
-
-      <Modal open={!!active} onClose={() => busyId === null && setActive(null)} title={active?.name ?? ""} size="lg">
-        {active && (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-text-soft">{active.description}</p>
-            <div className="flex items-center gap-2 flex-wrap text-xs">
-              <Badge tone={CATEGORY_TONE[active.category]}>{REPORT_CATEGORY_LABELS[active.category]}</Badge>
-              <Badge tone="neutral">{FREQUENCY_LABEL[active.frequency]}</Badge>
-              <Badge tone="neutral">{active.format}</Badge>
-              <span className="text-text-faint">
-                Visible to: {active.restrictedTo.map((r) => MOCK_ROLE_LABELS[r]).join(", ")}
-              </span>
+      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <nav aria-label="Reports" data-no-print>
+          <ul className="flex flex-col gap-1" data-testid="report-list">
+            {REPORTS.map((r) => (
+              <li key={r.key}>
+                <button
+                  type="button"
+                  onClick={() => pick(r.key)}
+                  aria-current={r.key === chosen.key ? "page" : undefined}
+                  className={`w-full rounded-[var(--radius-lg)] border px-3 py-2 text-left transition-colors ${r.key === chosen.key ? "border-primary-300 bg-primary-50" : "border-transparent hover:bg-surface-sunken"}`}
+                  data-report={r.key}
+                >
+                  <span className="block text-[13px] font-semibold text-text">{r.title}{!r.live && <span className="ml-1 font-normal text-text-faint">· not yet</span>}</span>
+                  <span className="mt-0.5 block text-[12px] text-text-soft">{r.description}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <section className="min-w-0" aria-label={chosen.title}>
+          {chosen.live ? <LiveReport key={chosen.key} entry={chosen} /> : (
+            <div data-testid="report-not-yet">
+              <h2 className="mb-2 font-display text-lg font-semibold text-text">{chosen.title}</h2>
+              <NotePanel tone="info">{NOT_YET[chosen.key]}</NotePanel>
             </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[13px] font-semibold text-text">
-                  Available columns ({selectedCols.size}/{active.columns.length} selected)
-                </h3>
-                <div className="flex gap-3 text-xs">
-                  <button type="button" className="text-primary-600 font-medium" onClick={() => setSelectedCols(new Set(active.columns.map((c) => c.key)))}>
-                    Select all
-                  </button>
-                  <button type="button" className="text-text-faint hover:text-text" onClick={() => setSelectedCols(new Set())}>
-                    Clear
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-sunken p-3">
-                {active.columns.map((c) => (
-                  <label key={c.key} className="flex items-start gap-2.5 py-1 text-sm text-text cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedCols.has(c.key)}
-                      onChange={() => toggleCol(c.key)}
-                      className="h-4 w-4 mt-0.5 accent-[var(--primary-600)]"
-                    />
-                    <span>
-                      {c.label}
-                      {c.description && <span className="block text-[11px] text-text-faint">{c.description}</span>}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {active.lastRun && (
-              <p className="text-xs text-text-faint">
-                Last generated {formatDateTime(active.lastRun.at)} by {active.lastRun.by}
-                {active.lastRun.columnCount ? ` · ${active.lastRun.columnCount} columns` : ""} · {active.lastRun.sizeKb} KB
-              </p>
-            )}
-
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" disabled={busyId === active.id} onClick={() => setActive(null)}>Close</Button>
-              <Button
-                disabled={busyId === active.id || selectedCols.size === 0}
-                onClick={() => run(active, [...selectedCols])}
-              >
-                <RefreshCw size={13} className={busyId === active.id ? "animate-spin" : ""} />
-                {busyId === active.id ? "Generating…" : `Generate (${selectedCols.size} columns)`}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
+
+const LOADERS: Record<Exclude<ReportKey, "farmer-register">, () => Promise<Loaded>> = {
+  "payment-runs": paymentRuns,
+  "agent-commissions": agentCommissions,
+  approvals,
+  "kyc-decisions": kycDecisions,
+};
+
+function LiveReport({ entry }: { entry: Entry }) {
+  const [filters, setFilters] = useState<RegisterFilters>({});
+  const [typed, setTyped] = useState("");
+  const isRegister = entry.key === "farmer-register";
+  useEffect(() => {
+    if (!isRegister || (typed.trim() || undefined) === filters.q) return;
+    const t = setTimeout(() => setFilters((f) => ({ ...f, q: typed.trim() || undefined })), 300);
+    return () => clearTimeout(t);
+  }, [typed, isRegister, filters.q]);
+
+  const report = useAsyncData(() => (isRegister ? farmerRegister(filters) : LOADERS[entry.key as keyof typeof LOADERS]()));
+  const { reload } = report;
+  const filterKey = JSON.stringify(filters);
+  useEffect(() => { if (isRegister) void reload(); }, [filterKey, isRegister, reload]);
+  // Stamped when the rows arrive.
+  const generatedAt = useMemo(() => new Date().toISOString(), [report.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div data-print-root data-testid="report">
+      <h2 className="font-display text-lg font-semibold text-text">{entry.title}</h2>
+      <p className="mb-3 text-[12.5px] text-text-soft">{entry.description}</p>
+
+      {isRegister && (
+        <div data-no-print>
+          <FilterBar>
+            <SearchInput value={typed} onChange={setTyped} placeholder="Grower number, name or phone" className="w-64" />
+            <SelectFilter value={filters.state ?? "all"} onChange={(v) => setFilters((f) => ({ ...f, state: v === "all" ? null : (v as FarmerState) }))}
+              options={FARMER_STATES.map((s) => ({ value: s, label: STATE_LABEL[s] }))} allLabel="Any stage" />
+            <SelectFilter value={filters.kyc ?? "all"} onChange={(v) => setFilters((f) => ({ ...f, kyc: v === "all" ? null : (v as KycStatus) }))}
+              options={KYC_STATUSES.map((s) => ({ value: s, label: `KYC: ${KYC_LABEL[s].toLowerCase()}` }))} allLabel="Any KYC" />
+            <SelectFilter value={filters.channel ?? "all"} onChange={(v) => setFilters((f) => ({ ...f, channel: v === "all" ? null : (v as OnboardingChannel) }))}
+              options={ONBOARDING_CHANNELS.map((c) => ({ value: c, label: `Joined via ${CHANNEL_LABEL[c].toLowerCase()}` }))} allLabel="Any way of joining" />
+          </FilterBar>
+        </div>
+      )}
+
+      {report.error ? <SourceError what={`the ${entry.title.toLowerCase()} report`} error={report.error} onRetry={report.reload} />
+        : !report.data ? <Skeleton className="h-64" />
+        : !report.data.available ? (
+          <div data-testid="report-not-available">
+            <NotePanel tone="info" title="Not available on this environment yet">Omnichannel here does not have what this report reads.</NotePanel>
+          </div>
+        ) : <ReportBody slug={entry.key} title={entry.title} data={report.data.data} generatedAt={generatedAt} />}
+    </div>
+  );
+}
+
+function ReportBody({ slug, title, data, generatedAt }: { slug: string; title: string; data: ReportData; generatedAt: string }) {
+  const exportRows: Row[] = data.totals ? [...data.rows, data.totals] : data.rows;
+  const stem = fileStem(slug);
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12.5px] text-text-soft" data-testid="report-meta">
+          {data.capped ? `First ${units(data.rows.length)} rows` : `${units(data.rows.length)} ${data.rows.length === 1 ? "row" : "rows"}`} · generated {nairobiDateTime(generatedAt)}
+        </p>
+        <div className="flex gap-2" data-no-print>
+          <Button size="sm" variant="outline" onClick={() => download(`${stem}.csv`, toCsv(data.columns, exportRows), "text/csv;charset=utf-8")}>
+            <FileDown size={14} /> CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => download(`${stem}.xlsx`, toXlsx(title, data.columns, exportRows) as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}>
+            <FileSpreadsheet size={14} /> Excel
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.print()}>
+            <Printer size={14} /> PDF
+          </Button>
+        </div>
+      </div>
+      {data.capped && <p className="mb-3 text-[12.5px] text-warning" data-testid="report-capped">More rows exist than a report reads at once; narrow the filters to see the rest.</p>}
+
+      {data.tiles && (
+        <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="report-tiles">
+          {data.tiles.map((t) => <StatCard key={t.label} label={t.label} value={t.value} />)}
+        </div>
+      )}
+      {data.chart && (
+        <Card className="mb-4 p-4" data-testid="report-chart">
+          <h3 className="mb-2 text-[13px] font-semibold text-text">{data.chart.title}</h3>
+          <ColumnChart labels={data.chart.labels} series={[{ label: data.chart.title, values: data.chart.values }]} />
+        </Card>
+      )}
+
+      {data.rows.length === 0 ? (
+        <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="report-empty">Nothing to report yet.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-border">
+          <table className="w-full text-[12.5px]" data-testid="report-table">
+            <thead className="bg-surface-sunken text-left text-[12px] text-text-soft">
+              <tr>{data.columns.map((c) => <th key={c.key} className={`whitespace-nowrap px-3 py-2 font-medium ${c.numeric ? "text-right" : ""}`}>{c.header}</th>)}</tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r, i) => (
+                <tr key={i} className="border-t border-border/60">
+                  {data.columns.map((c) => <td key={c.key} className={`px-3 py-2 ${c.numeric ? "text-right tabular" : ""}`}>{fmt(r[c.key], c.numeric)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+            {data.totals && (
+              <tfoot>
+                <tr className="border-t border-border bg-surface-sunken font-semibold" data-testid="report-totals">
+                  {data.columns.map((c) => <td key={c.key} className={`px-3 py-2 ${c.numeric ? "text-right tabular" : ""}`}>{fmt(data.totals![c.key], c.numeric)}</td>)}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+const fmt = (v: Row[string], numeric?: boolean) =>
+  v === null || v === undefined || v === "" ? "—" : numeric && typeof v === "number" ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v) : String(v);

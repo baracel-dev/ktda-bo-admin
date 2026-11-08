@@ -1,2 +1,12 @@
 @import "./ui/tokens.css";
 @import "./ui/theme.css";
+
+/* Reports: "PDF" is the browser's print of the report alone (Reports.tsx
+   marks it data-print-root). Everything else is hidden. */
+@media print {
+  body:has([data-print-root]) * { visibility: hidden !important; }
+  [data-print-root], [data-print-root] * { visibility: visible !important; }
+  [data-print-root] { position: absolute; inset: 0 auto auto 0; width: 100%; padding: 0; background: #fff; color: #000; }
+  [data-print-root] [data-no-print] { display: none !important; }
+  [data-print-root] table { font-size: 10px; }
+}

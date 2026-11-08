@@ -9,7 +9,7 @@ export const CORE_CONNECTED = Boolean(import.meta.env.VITE_CORE_API_BASE);
 
 /** Route prefixes backed by the tokenization service. Segment-aware: "/clients"
  *  covers "/clients/123" but not "/clients-export". */
-const LIVE_ROUTES = ["/token-console", "/bulk", "/institution", "/journey", "/farmers", "/merchants", "/agents", "/approvals"];
+const LIVE_ROUTES = ["/token-console", "/bulk", "/institution", "/journey", "/farmers", "/merchants", "/agents", "/approvals", "/reports"];
 
 export function isLiveRoute(path: string) {
   return LIVE_ROUTES.some((p) => path === p || path.startsWith(`${p}/`));

@@ -13,9 +13,10 @@
    - a merchant PUT that changes the settlement bank or account, the
      commission rate or the till;
    - a merchant decision APPROVED, or REJECTED on an approved one (revoking);
-   - a farmer KYC decision VERIFIED when the registry's answer was not MATCH. */
+   - a farmer KYC decision VERIFIED when the registry's answer was not MATCH;
+   - a bulk KYC decision, except verifying only the registry's matches. */
 
-export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE";
+export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE" | "FARMER_KYC_BULK_DECISION";
 export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   AGENT_FLOAT_TOP_UP: "Float top-up",
   AGENT_SUSPEND: "Agent suspension",
@@ -23,6 +24,7 @@ export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   MERCHANT_UPDATE: "Settlement change",
   MERCHANT_DECISION: "Merchant KYB",
   FARMER_KYC_OVERRIDE: "KYC override",
+  FARMER_KYC_BULK_DECISION: "Bulk KYC decision",
 };
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FAILED";
@@ -74,7 +76,9 @@ export const REASON_MAX = 300;
 export type Staged<T> = { applied: T; approval?: undefined } | { approval: Approval; applied?: undefined };
 
 /** Where a request's target lives in this back office. */
-export function targetLink(t: Approval["target"]): string {
+export function targetLink(t: Approval["target"], type?: ApprovalType): string {
+  // A bulk KYC decision is about many farmers: the KYC desk's waiting list.
+  if (type === "FARMER_KYC_BULK_DECISION") return "/token-console/kyc?kyc=PENDING";
   if (t.kind === "AGENT") return `/agents?focus=${encodeURIComponent(t.reference)}`;
   if (t.kind === "MERCHANT") return `/merchants?focus=${encodeURIComponent(t.reference)}`;
   return `/farmers/${encodeURIComponent(t.reference)}`;

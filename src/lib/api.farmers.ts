@@ -8,7 +8,7 @@ import { controlledPost } from "./api.approvals";
 import type { Staged } from "./approvalsContract";
 import {
   FARMERS_MAX_SIZE, FARMERS_PATH, FARMERS_SUMMARY_PATH, NOT_AVAILABLE, farmerByCustomerPath, farmerPath, notBuiltYet,
-  KYC_SWEEP_PATH, KYC_SWEEP_RUNNING,
+  KYC_SWEEP_PATH, KYC_SWEEP_RUNNING, KYC_BULK_PATH, type KycBulkDecisionBody, type KycBulkRun,
   type AssistedOnboarding, type Farmer, type FarmerDocument, type FarmerPhotoType, type FarmerState, type FarmersSummary, type KycDecisionBody,
   type KycStatus, type KycSweep, type OnboardingChannel, type RegisterFarmer,
 } from "./journeyContract";
@@ -83,6 +83,20 @@ export const farmersApi = {
       throw e;
     }
   },
+  /** The latest bulk KYC decision run, or null when none has run (404). */
+  latestBulkDecision: async (): Promise<KycBulkRun | null> => {
+    try {
+      const r = await omniCall.get<KycBulkRun | unknown>(KYC_BULK_PATH);
+      return r && typeof r === "object" && !Array.isArray(r) && typeof (r as KycBulkRun).status === "string" ? (r as KycBulkRun) : null;
+    } catch (e) {
+      if (e instanceof OmniApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+  /** One decision for many farmers: the run (201) when it starts at once,
+   *  or the approval request (202). A 404 here is NOT_AVAILABLE. */
+  bulkDecideKyc: (body: KycBulkDecisionBody): Promise<Staged<KycBulkRun>> =>
+    notBuiltAsUnavailable(controlledPost<KycBulkRun>(KYC_BULK_PATH, body)),
   /** Start the sweep. `running` when one was already under way: the sweep
    *  answered is then that one, read back. A 404 here is NOT_AVAILABLE. */
   startSweep: async (): Promise<{ sweep: KycSweep | null; alreadyRunning: boolean }> => {

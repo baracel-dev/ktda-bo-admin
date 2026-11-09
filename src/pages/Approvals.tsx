@@ -214,7 +214,7 @@ function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; 
             <DetailItem term="Requested by">{a.maker}</DetailItem>
             <DetailItem term="Requested">{dateTime(a.madeAt)}</DetailItem>
             <DetailItem term="What it changes">
-              <Link to={targetLink(a.target)} className="font-medium text-primary-600 hover:underline" data-testid="approval-target">
+              <Link to={targetLink(a.target, a.type)} className="font-medium text-primary-600 hover:underline" data-testid="approval-target">
                 {label(a.target.kind)} {a.target.reference}{a.target.name ? ` · ${a.target.name}` : ""}
               </Link>
             </DetailItem>

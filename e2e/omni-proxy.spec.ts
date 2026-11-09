@@ -215,3 +215,15 @@ test("the demo's mock SasaPay: its read and its reset pass, nothing else under i
   expect(rows.res.status).toBe(200);
   expect(rows.res.headers.get("x-total-count")).toBe("45");
 });
+
+test("one KYC decision for many farmers: asking for it and reading the latest run pass, nothing else under it", async () => {
+  const ask = await call("/omni/api/operator/farmers/kyc/decisions/bulk", { method: "POST" });
+  expect(ask.res.status).toBe(200);
+  expect(ask.upstream?.url).toBe("https://omni.test/api/operator/farmers/kyc/decisions/bulk");
+  expect((await call("/omni/api/operator/farmers/kyc/decisions/bulk")).res.status).toBe(200);
+  for (const [method, path] of [["PUT", "farmers/kyc/decisions/bulk"], ["GET", "farmers/kyc/decisions"], ["POST", "farmers/kyc/decisions"], ["GET", "farmers/kyc/decisions/bulk/b1"], ["POST", "farmers/kyc/decisions/bulk/b1/cancel"]]) {
+    const r = await call(`/omni/api/operator/${path}`, { method });
+    expect(r.res.status, `${method} ${path}`).toBe(404);
+    expect(r.upstream, `${method} ${path}`).toBeUndefined();
+  }
+});

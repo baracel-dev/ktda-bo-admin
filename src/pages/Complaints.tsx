@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  COMPLAINT_STATUS_LABELS, COMPLAINT_CATEGORY_LABELS,
+  COMPLAINT_STATUS_LABELS, COMPLAINT_CATEGORY_LABELS, COMPLAINT_CHANNEL_LABELS,
   ROLE_LABELS as SYSTEM_ROLE_LABELS,
   type Complaint, type ComplaintStatus, type ComplaintCategory,
 } from "../mock";
@@ -64,13 +64,13 @@ export default function Complaints() {
       ),
     },
     { key: "id", header: "ID", className: "whitespace-nowrap", render: (r) => <span className="tabular text-text-faint text-xs">{r.id}</span>, hideOnMobile: true, defaultHidden: true },
-    { key: "clientName", header: "Client · submitted", className: "whitespace-nowrap", render: (r) => (
+    { key: "clientName", header: "Farmer · raised", className: "whitespace-nowrap", render: (r) => (
       <div>
         <div className="text-text">{r.clientName}</div>
-        <div className="mt-0.5 tabular text-xs text-text-faint">{formatDateTime(r.submittedAt)} · <span className="capitalize">{r.channel}</span></div>
+        <div className="mt-0.5 tabular text-xs text-text-faint">{formatDateTime(r.submittedAt)} · via {COMPLAINT_CHANNEL_LABELS[r.channel]}</div>
       </div>
     ), hideOnMobile: true },
-    { key: "channel", header: "Channel", className: "whitespace-nowrap", render: (r) => <span className="capitalize">{r.channel}</span>, hideOnMobile: true, defaultHidden: true },
+    { key: "channel", header: "Channel", className: "whitespace-nowrap", render: (r) => <span>{COMPLAINT_CHANNEL_LABELS[r.channel]}</span>, hideOnMobile: true, defaultHidden: true },
     { key: "category", header: "Category", className: "whitespace-nowrap", render: (r) => <Badge tone={CATEGORY_TONE[r.category]}>{COMPLAINT_CATEGORY_LABELS[r.category]}</Badge>, hideOnMobile: true },
     // Where it is in the SOP §7 pipeline, then who is holding it there.
     { key: "status", header: "Status · assignee", className: "whitespace-nowrap", render: (r) => (
@@ -86,9 +86,9 @@ export default function Complaints() {
   return (
     <div>
       <PageHeader
-        title="Complaints"
-        tooltip="SOP §7 — every complaint is acknowledged within 1 business day, investigated, and closed with a recorded resolution. The full handling history stays on the record."
-        subtitle="Client complaints queue across all channels — acknowledge, assign, investigate and resolve."
+        title="Disputes"
+        tooltip="Every dispute is acknowledged within one business day, investigated, and closed with a recorded resolution. The full handling history stays on the record."
+        subtitle="Farmers' disputes about payments, cash-outs, charges and vouchers, from USSD, agents, the call centre and the app."
       />
 
       {error && (
@@ -99,7 +99,7 @@ export default function Complaints() {
       )}
 
       <FilterBar>
-        <SearchInput value={query} onChange={setQuery} placeholder="Search subject, client, description…" />
+        <SearchInput value={query} onChange={setQuery} placeholder="Search subject, farmer, description…" />
         <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
         <SelectFilter value={category} onChange={setCategory} options={CATEGORY_OPTIONS} allLabel="All categories" />
         <DateRangeFilter from={range.from} to={range.to} onChange={setRange} />
@@ -178,7 +178,7 @@ function ComplaintModal({
             <Badge tone={STATUS_TONE[complaint.status]}>{COMPLAINT_STATUS_LABELS[complaint.status]}</Badge>
             <Badge tone={CATEGORY_TONE[complaint.category]}>{COMPLAINT_CATEGORY_LABELS[complaint.category]}</Badge>
             <span className="text-xs text-text-faint">
-              {complaint.clientName} · via {complaint.channel} · {formatDateTime(complaint.submittedAt)}
+              {complaint.clientName}{complaint.clientId ? ` (${complaint.clientId})` : ""} · via {COMPLAINT_CHANNEL_LABELS[complaint.channel]} · {formatDateTime(complaint.submittedAt)}
             </span>
           </div>
 
@@ -203,8 +203,8 @@ function ComplaintModal({
           </Field>
 
           {next === "resolved" && (
-            <Field label="Resolution" required hint="Recorded on the complaint and shown to the client.">
-              <Textarea value={resolution} onChange={(e) => setResolution(e.target.value)} placeholder="What was done to resolve this complaint." />
+            <Field label="Resolution" required hint="Recorded on the dispute and sent to the farmer.">
+              <Textarea value={resolution} onChange={(e) => setResolution(e.target.value)} placeholder="What was done to resolve this dispute." />
             </Field>
           )}
 

@@ -1855,8 +1855,8 @@ export async function convertEnquiryToLead(id: string, actor: string): Promise<{
     // new lead has no score and must not be given a placeholder one.
     suitabilityScore: null,
     geography: "—",
-    product: enquiry.category === "institutional" ? "Institutional mandate" : "KES Fixed Income",
-    deliveryChannel: enquiry.channel === "branch" ? "Branch" : enquiry.channel === "ifa" ? "IFA" : enquiry.channel === "app" ? "Mobile app" : "Web",
+    product: "Farmer wallet",
+    deliveryChannel: enquiry.channel === "app" ? "Mobile app" : "Branch",
     customerRisk: null,
     createdAt: new Date().toISOString(),
   };

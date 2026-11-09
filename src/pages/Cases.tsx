@@ -42,7 +42,7 @@ export default function Cases({ scope }: { scope?: CaseType } = {}) {
   // since it only ever exports rows the current role was served.
   const exportCsv = () => {
     const esc = (v: string) => `"${v.replaceAll('"', '""')}"`;
-    const header = ["Case ID", "Type", "Title", "Client", "Severity", "Status", "Assignee", "Opened", "Opened by", "Due", "Closed", "STR reference", "Summary"];
+    const header = ["Case ID", "Type", "Title", "About", "Severity", "Status", "Assignee", "Opened", "Opened by", "Due", "Closed", "STR reference", "Summary"];
     const lines = rows.map((c) =>
       [c.id, CASE_TYPE_LABELS[c.type], c.title, c.clientName, c.severity, CASE_STATUS_LABELS[c.status], c.assignee ?? "", c.openedAt, c.openedBy, c.dueAt ?? "", c.closedAt ?? "", c.sar?.strReference ?? "", c.summary]
         .map(esc).join(","),
@@ -89,7 +89,7 @@ export default function Cases({ scope }: { scope?: CaseType } = {}) {
       </div>
     ) },
     { key: "id", header: "Case ID", className: "whitespace-nowrap", render: (r) => <span className="tabular text-text-faint text-xs">{r.id}</span>, hideOnMobile: true, defaultHidden: true },
-    { key: "clientName", header: "Client", className: "min-w-[110px]", render: (r) => r.clientName, hideOnMobile: true },
+    { key: "clientName", header: "About", className: "min-w-[110px]", render: (r) => r.clientName, hideOnMobile: true },
     // Where the case stands and who holds it: the owner sits under the state.
     { key: "status", header: "Status · assignee", className: "whitespace-nowrap", render: (r) => (
       <div>
@@ -117,13 +117,13 @@ export default function Cases({ scope }: { scope?: CaseType } = {}) {
         eyebrow={scope === "fraud" ? "Fraud Reporting" : "Transaction Monitoring"}
         tooltip={
           scope === "fraud"
-            ? "One investigation file per fraud matter — account takeover, third-party payment, mule accounts and payment-rail abuse — with notes, evidence and decisions all audit-linked."
-            : "One investigation file per matter — AML, fraud, anti-bribery and SARs — with notes, evidence and decisions all audit-linked. SAR cases are visible only to Compliance and the MLRO."
+            ? "One investigation file per fraud matter (duplicate grower numbers, number changes before a payment, agent and merchant abuse) with its notes, evidence and decisions."
+            : "One investigation file per matter (AML, fraud, anti-bribery and suspicious activity) with its notes, evidence and decisions. Suspicious activity cases are visible only to Compliance and the MLRO."
         }
         subtitle={
           scope === "fraud"
-            ? "Investigation workspace for fraud matters escalated from the fraud alert board. Every action lands in the tamper-evident audit trail."
-            : "Investigation workspace for suspicious activity, fraud and ABC matters. Every action lands in the tamper-evident audit trail."
+            ? "Fraud matters opened from the fraud alerts. Every action lands in the audit log."
+            : "Investigations into farmers, agents and merchants. Every action lands in the audit log."
         }
         actions={
           <div className="flex items-center gap-2">
@@ -145,7 +145,7 @@ export default function Cases({ scope }: { scope?: CaseType } = {}) {
       )}
 
       <FilterBar>
-        <SearchInput value={query} onChange={setQuery} placeholder="Search case, client, assignee…" />
+        <SearchInput value={query} onChange={setQuery} placeholder="Search case, name, assignee…" />
         {!scope && <SelectFilter value={type} onChange={setType} options={TYPE_OPTIONS} allLabel="All types" />}
         <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
         <DateRangeFilter from={range.from} to={range.to} onChange={setRange} />
@@ -215,10 +215,10 @@ function CreateCaseModal({ open, defaultType, onClose, onCreated }: { open: bool
           <Dropdown value={type} onChange={(v) => setType(v as CaseType)} options={TYPE_OPTIONS} ariaLabel="Case type" />
         </Field>
         <Field label="Title" required>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Unusual redemption pattern — J. Doe" autoFocus />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Repeated cash-outs at one agent" autoFocus />
         </Field>
-        <Field label="Client (optional)" hint="Leave blank for internal matters (e.g. ABC declarations).">
-          <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" />
+        <Field label="Farmer, agent or merchant (optional)" hint="Leave blank for internal matters (e.g. gift declarations).">
+          <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Name and grower, agent or merchant number" />
         </Field>
         <Field label="Severity">
           <Dropdown

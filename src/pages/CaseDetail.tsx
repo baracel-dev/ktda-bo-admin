@@ -178,7 +178,7 @@ export default function CaseDetail() {
             <KeyValue
               rows={[
                 { label: "Case ID", value: <span className="tabular">{c.id}</span> },
-                { label: "Client", value: c.clientId ? <Link to={`/clients/${c.clientId}`} className="text-primary-600 font-medium">{c.clientName}</Link> : c.clientName },
+                { label: "About", value: c.clientId ? `${c.clientName} · ${c.clientId}` : c.clientName },
                 { label: "Opened", value: `${formatDateTime(c.openedAt)} by ${c.openedBy}` },
                 { label: "Due", value: c.dueAt ?? "—" },
                 { label: "Linked alerts", value: c.linkedAlertIds.length ? c.linkedAlertIds.join(", ") : "None" },
@@ -340,7 +340,7 @@ function EvidenceForm({ onCancel, onAdd }: { onCancel: () => void; onAdd: (e: Om
           options={[
             { value: "transaction_ref", label: "Transaction reference" },
             { value: "screening_ref", label: "Screening result" },
-            { value: "document_ref", label: "Client document" },
+            { value: "document_ref", label: "Document" },
             { value: "external", label: "External / other" },
           ]}
           ariaLabel="Evidence type"

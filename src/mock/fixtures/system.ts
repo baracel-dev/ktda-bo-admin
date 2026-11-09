@@ -3,7 +3,7 @@ import type { AdminRole } from "./admin";
 /** System-management domain — departments, third-party integrations,
  * scheduled batch jobs and per-app maintenance mode. All BO-managed. */
 
-// ---- Departments (mirror the four Investcent SOPs + control functions) ----
+// ---- Departments ----
 
 export type Department = {
   id: string;
@@ -16,12 +16,12 @@ export type Department = {
 };
 
 export const DEPARTMENTS: Department[] = [
-  { id: "dep_exec", name: "Executive", head: "Charles Mburu", description: "Firm-wide oversight — performance, risk appetite, regulatory standing and the approvals that reach board level.", roles: ["ceo"] },
-  { id: "dep_bd", name: "Business Development & Client Services", head: "Faith Kamau", description: "Client acquisition, discovery, suitability, IFA channel and ongoing servicing (BD SOP).", roles: ["bd_officer", "client_services", "head_of_bd"] },
-  { id: "dep_ops", name: "Operations", head: "Grace Mumbi", description: "Onboarding, static data, receipts and unit allocation, settlement, custody, reconciliations (Ops SOP).", roles: ["operations"] },
-  { id: "dep_fin", name: "Finance", head: "Daniel Kiptoo", description: "Close, treasury, client money, revenue, tax and regulatory reporting (Finance SOP).", roles: ["head_of_finance"] },
-  { id: "dep_inv", name: "Investments / Fund Management", head: "Susan Achieng", description: "Portfolio management, market analysis, trade governance and risk limits (Investments SOP).", roles: ["investment_manager", "investment_committee"] },
-  { id: "dep_comp", name: "Compliance & Risk", head: "Kevin Baraka", description: "Screening, suitability exceptions, AML monitoring, EDD, suspicious-activity reporting (MLRO) and regulatory liaison.", roles: ["compliance", "mlro", "compliance_analyst"] },
+  { id: "dep_exec", name: "Executive", head: "Charles Mburu", description: "Oversight of the tea payment service: performance, risk and the approvals that reach the board.", roles: ["ceo"] },
+  { id: "dep_bd", name: "Farmer services", head: "Faith Kamau", description: "Registering farmers, messages to farmers, and the call centre and support desk.", roles: ["bd_officer", "client_services", "head_of_bd"] },
+  { id: "dep_ops", name: "Payments operations", head: "Grace Mumbi", description: "Payment runs from the factories' files, Pay to M-PESA, reconciliation and unallocated receipts.", roles: ["operations"] },
+  { id: "dep_fin", name: "Finance", head: "Daniel Kiptoo", description: "Settlement with M-PESA and SasaPay, float, charges and reporting.", roles: ["head_of_finance"] },
+  { id: "dep_net", name: "Agent and merchant network", head: "Susan Achieng", description: "Agents' float and commissions, and agro-dealers that accept input vouchers.", roles: ["investment_manager", "investment_committee"] },
+  { id: "dep_comp", name: "Compliance & Risk", head: "Kevin Baraka", description: "KYC decisions, fraud and AML monitoring, investigations and suspicious transaction reports (MLRO).", roles: ["compliance", "mlro", "compliance_analyst"] },
   { id: "dep_it", name: "Technology", head: "IT Admin", description: "Platform administration, access control, integrations and system monitoring.", roles: ["system_admin"] },
 ];
 
@@ -42,17 +42,16 @@ export type Integration = {
 };
 
 export const INTEGRATIONS: Integration[] = [
-  { id: "int_smile", name: "Smile Identity", purpose: "Onboarding KYC — ID document, biometric liveness, sanctions/PEP screening.", environment: "production", health: "healthy", lastCheckedAt: "2026-08-09T06:00:00Z" },
-  { id: "int_daraja", name: "M-Pesa Daraja", purpose: "STK Push collections and B2C payouts on the bank's own Paybill.", environment: "production", health: "healthy", lastCheckedAt: "2026-08-09T06:00:00Z" },
-  { id: "int_custodian", name: "Custodian statement feed", purpose: "Daily positions and coupon settlement statements for NAV reconciliation.", environment: "production", health: "degraded", lastCheckedAt: "2026-08-09T05:30:00Z", note: "Yesterday's statement arrived 40 minutes late — monitoring." },
-  { id: "int_pricing", name: "Bond pricing feed", purpose: "NSE / market prices and yields feeding the daily NAV computation.", environment: "production", health: "healthy", lastCheckedAt: "2026-08-09T06:00:00Z" },
-  { id: "int_airtel", name: "Airtel Money", purpose: "Second mobile-money rail for collections and payouts (proposal §4.3).", environment: "sandbox", health: "down", lastCheckedAt: "2026-08-20T09:00:00Z", note: "Merchant onboarding not started — Phase 1b. Down here means \u201cno integration\u201d, not \u201coutage\u201d." },
-  { id: "int_pesalink", name: "Pesalink", purpose: "Instant bank-to-bank transfers for KES subscriptions and payouts.", environment: "sandbox", health: "down", lastCheckedAt: "2026-08-20T09:00:00Z", note: "Awaiting IPSL scheme onboarding — Phase 1b." },
-  { id: "int_ussd", name: "USSD gateway", purpose: "Feature-phone session handling on the investor shortcode.", environment: "sandbox", health: "down", lastCheckedAt: "2026-08-20T09:00:00Z", note: "Shortcode not yet allocated by Safaricom; see the ussd_shortcode platform setting." },
-  { id: "int_comms", name: "SMS / email gateway", purpose: "Transactional notices — welcome packs, distribution and settlement alerts.", environment: "sandbox", health: "healthy", lastCheckedAt: "2026-08-09T06:00:00Z", note: "Cut over to production alongside the mobile app launch." },
+  { id: "int_mpesa", name: "M-PESA (Daraja)", purpose: "Pay to M-PESA (B2C) for farmers, and paybill deposits into wallets.", environment: "production", health: "healthy", lastCheckedAt: "2026-11-09T06:00:00Z" },
+  { id: "int_sasapay", name: "SasaPay", purpose: "Farmer, agent and merchant wallets; agent cash-out and till payments.", environment: "production", health: "healthy", lastCheckedAt: "2026-11-09T06:00:00Z" },
+  { id: "int_iprs", name: "Identity registry (IPRS)", purpose: "Checks a farmer's ID number and name at registration and KYC.", environment: "production", health: "degraded", lastCheckedAt: "2026-11-09T05:30:00Z", note: "Answers slower than usual since 05:00; checks are queued, not lost." },
+  { id: "int_sap", name: "Factory payment files (SAP)", purpose: "Each factory's green leaf and bonus payment file for a payment run.", environment: "production", health: "healthy", lastCheckedAt: "2026-11-09T06:00:00Z" },
+  { id: "int_ussd", name: "USSD gateway", purpose: "Farmers' feature-phone menu: balance, statement, cash-out and PIN.", environment: "production", health: "healthy", lastCheckedAt: "2026-11-09T06:00:00Z" },
+  { id: "int_sms", name: "SMS gateway", purpose: "Payment notices, consent requests, one-time codes and campaigns.", environment: "production", health: "healthy", lastCheckedAt: "2026-11-09T06:00:00Z" },
+  { id: "int_airtel", name: "Airtel Money", purpose: "A second mobile-money rail for farmers on Airtel lines.", environment: "sandbox", health: "down", lastCheckedAt: "2026-11-02T09:00:00Z", note: "Not started. Down here means no integration yet, not an outage." },
 ];
 
-// ---- Scheduled batch jobs (Ops SOP: EOD/EOM processing) ----
+// ---- Scheduled jobs ----
 
 export type SystemJob = {
   id: string;
@@ -64,13 +63,13 @@ export type SystemJob = {
 };
 
 export const SYSTEM_JOBS: SystemJob[] = [
-  { id: "job_nav", name: "Daily NAV computation", description: "Prices, accruals and unit pricing per sub-fund; queues the publication approval.", schedule: "Daily 16:15 EAT", enabled: true, lastRun: { at: "2026-08-08T16:15:00Z", status: "success" } },
-  { id: "job_recon", name: "Daily reconciliation sweep", description: "Cash, unit-holding, custodian and suspense reconciliations; raises breaks.", schedule: "Daily 06:30 EAT", enabled: true, lastRun: { at: "2026-08-09T06:30:00Z", status: "success", detail: "1 new break raised (M-Pesa settlement batch)." } },
-  { id: "job_dist", name: "Monthly distribution batch", description: "Accrued coupon income allocation — reinvest vs payout — with WHT applied.", schedule: "Last business day, 17:30 EAT", enabled: true, lastRun: { at: "2026-07-31T17:30:00Z", status: "success" } },
-  { id: "job_aml", name: "AML monitoring scan", description: "Structuring, velocity and geo-mismatch rules over the rolling window.", schedule: "Hourly", enabled: true, lastRun: { at: "2026-08-09T07:00:00Z", status: "success" } },
-  { id: "job_screening", name: "Daily sanctions / PEP re-screening", description: "Re-screens every customer against sanctions, PEP and adverse-media lists — the whole register, daily.", schedule: "Daily 05:00 EAT", enabled: true, lastRun: { at: "2026-08-11T05:00:00Z", status: "success", detail: "5 customers screened, 0 new matches." } },
-  { id: "job_statements", name: "Monthly statement generation", description: "Investor statements rendered and released after review.", schedule: "1st business day, 06:00 EAT", enabled: true, lastRun: { at: "2026-08-03T06:00:00Z", status: "success" } },
-  { id: "job_kyc_refresh", name: "KYC refresh sweep", description: "Flags clients due periodic KYC/tax re-verification per the configured cadence.", schedule: "Weekly, Mon 05:00 EAT", enabled: false, lastRun: { at: "2026-07-27T05:00:00Z", status: "failed", detail: "Timed out against Smile Identity sandbox — re-enable after gateway cutover." } },
+  { id: "job_files", name: "Factory payment file intake", description: "Collects the factories' payment files and stages them as payment runs for approval.", schedule: "Daily 05:00 EAT", enabled: true, lastRun: { at: "2026-11-09T05:00:00Z", status: "success", detail: "3 files staged: Litein, Momul, Kapkoros." } },
+  { id: "job_recon", name: "Daily reconciliation", description: "Matches wallets, M-PESA and SasaPay settlement and the payment runs; raises breaks.", schedule: "Daily 06:30 EAT", enabled: true, lastRun: { at: "2026-11-09T06:30:00Z", status: "success", detail: "1 new break: SasaPay settlement KES 1,240 short." } },
+  { id: "job_notices", name: "Payment notices", description: "Sends each farmer an SMS when their line in a payment run is credited.", schedule: "After each payment run", enabled: true, lastRun: { at: "2026-11-06T09:30:00Z", status: "success", detail: "18,011 notices sent." } },
+  { id: "job_aml", name: "Fraud and AML monitoring", description: "Split cash-outs, number changes before a payment, repeated agent cash-outs and merchant spikes.", schedule: "Hourly", enabled: true, lastRun: { at: "2026-11-09T07:00:00Z", status: "success" } },
+  { id: "job_commission", name: "Agent commissions", description: "Works out each agent's commission for the month and queues it for approval.", schedule: "Last business day, 17:30 EAT", enabled: true, lastRun: { at: "2026-10-30T17:30:00Z", status: "success" } },
+  { id: "job_vouchers", name: "Voucher expiry", description: "Expires unused input vouchers past their date and returns the value to the scheme.", schedule: "Daily 00:30 EAT", enabled: true, lastRun: { at: "2026-11-09T00:30:00Z", status: "success", detail: "42 vouchers expired." } },
+  { id: "job_kyc_refresh", name: "KYC re-check", description: "Re-checks farmers whose ID check is due again against the identity registry.", schedule: "Weekly, Mon 05:00 EAT", enabled: false, lastRun: { at: "2026-11-02T05:00:00Z", status: "failed", detail: "Timed out against the identity registry; re-enable once it answers normally." } },
 ];
 
 // ---- Per-app maintenance mode ----
@@ -83,9 +82,8 @@ export type MaintenanceTarget = {
 };
 
 export const MAINTENANCE_TARGETS: MaintenanceTarget[] = [
-  { id: "mt_investor", app: "Investor Web / PWA", maintenance: false },
-  { id: "mt_mobile", app: "Investor Mobile", maintenance: true, note: "Pre-launch — held in maintenance until go-live." },
-  { id: "mt_ifa", app: "IFA Portal", maintenance: false },
-  { id: "mt_trustee", app: "Trustee Portal", maintenance: false },
-  { id: "mt_payops", app: "Payment Ops Portal", maintenance: false },
+  { id: "mt_ussd", app: "Farmer USSD menu", maintenance: false },
+  { id: "mt_app", app: "Farmer app", maintenance: false },
+  { id: "mt_agent", app: "Agent app", maintenance: false },
+  { id: "mt_merchant", app: "Merchant till app", maintenance: true, note: "Upgrade to the voucher list screen; back by 12:00." },
 ];

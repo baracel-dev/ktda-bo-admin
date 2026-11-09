@@ -567,18 +567,18 @@ function chainHash(prev: string, e: { id: string; at: string; actor: string; act
 }
 
 const AUDIT_SEEDS: Omit<AuditEvent, "hash" | "prevHash">[] = [
-  { id: "au_99", at: "2026-08-08T16:12:00Z", actor: "System (NAV Engine)", actorRole: "System", category: "report", action: "Generated", target: "Daily NAV pack", detail: "2026-08-08 dealing day, no variance flags." },
-  { id: "au_98", at: "2026-08-08T08:05:00Z", actor: "Grace Mumbi", actorRole: "Operations", category: "approval", action: "Proposed", target: "Payment release — subscription refund KES 50,000", detail: "Duplicate Daraja STK callback reversal for inv_2891." },
-  { id: "au_97", at: "2026-08-07T13:20:00Z", actor: "Samuel Kariuki", actorRole: "Payment Ops", category: "approval", action: "Proposed", target: "Payment release — RDM-2308-USD" },
-  { id: "au_96", at: "2026-08-06T11:00:00Z", actor: "System (AML Engine)", actorRole: "System", category: "data", action: "Raised alert", target: "Structuring pattern — Brian Otieno", detail: "4 deposits just under the KES 10,000 review threshold within 48h." },
-  { id: "au_95", at: "2026-08-06T09:14:00Z", actor: "System (Suitability Engine)", actorRole: "System", category: "approval", action: "Proposed", target: "Suitability exception — inv_3350", detail: "Scored 38/100, below the configured pass score of 40." },
-  { id: "au_94", at: "2026-08-05T09:02:00Z", actor: "IT Admin", actorRole: "System Admin", category: "config", action: "Pre-staged flags", target: "Investor Mobile — biometric login, push notifications, in-app STK", detail: "Launch becomes a config change, not a deploy." },
-  { id: "au_93", at: "2026-08-04T10:12:00Z", actor: "Grace Mumbi", actorRole: "Operations", category: "config", action: "Proposed change", target: "USD wire reference format", detail: "BRF-{investorId} → BRF-USD-{investorId}-{ddmmyy} to cut unmatched receipts." },
-  { id: "au_92", at: "2026-08-02T14:01:00Z", actor: "IT Admin", actorRole: "System Admin", category: "config", action: "Flag disabled", target: "Payment Ops — auto-retry failed settlements", detail: "Held in beta pending Daraja sandbox soak test." },
-  { id: "au_91", at: "2026-08-01T10:00:00Z", actor: "IT Admin", actorRole: "System Admin", category: "security", action: "Completed", target: "Quarterly access recertification", detail: "All six roles recertified against the page-access matrix." },
-  { id: "au_90", at: "2026-07-31T17:55:00Z", actor: "Daniel Kiptoo", actorRole: "Head of Finance", category: "approval", action: "Approved", target: "July 2026 distribution batch", detail: "KES 6.76M + USD 11.3k across both sub-funds, WHT at 15%." },
-  { id: "au_89", at: "2026-07-18T08:30:00Z", actor: "IT Admin", actorRole: "System Admin", category: "config", action: "Flag enabled", target: "Investor Web — USD Eurobond subscriptions" },
-  { id: "au_88", at: "2026-07-05T10:04:00Z", actor: "Daniel Kiptoo", actorRole: "Head of Finance", category: "report", action: "Generated", target: "CMA quarterly CIS return", detail: "Q2 2026 filing package." },
+  { id: "au_99", at: "2026-11-09T06:30:00Z", actor: "System (Fraud monitoring)", actorRole: "System", category: "compliance", action: "Raised alert", target: "PIN attempts then a new device: GN-171206", entityType: "alert", entityId: "fr_5" },
+  { id: "au_98", at: "2026-11-08T08:05:00Z", actor: "Peter Otieno", actorRole: "Compliance analyst", category: "compliance", action: "Opened case", target: "One farmer cashed out repeatedly: agent AG-2041", entityType: "case", entityId: "cs_5" },
+  { id: "au_97", at: "2026-11-08T08:00:00Z", actor: "Peter Otieno", actorRole: "Compliance analyst", category: "data", action: "Suspended agent float", target: "Kiprotich Agencies (AG-2041)" },
+  { id: "au_96", at: "2026-11-07T11:30:00Z", actor: "Peter Otieno", actorRole: "Compliance analyst", category: "compliance", action: "Opened case", target: "Cash-outs split across agents: GN-163842", entityType: "case", entityId: "cs_1" },
+  { id: "au_95", at: "2026-11-06T09:05:00Z", actor: "Daniel Kiptoo", actorRole: "Head of Finance", category: "approval", action: "Approved", target: "Payment run PR-2026-11-06: Litein, Momul, Kapkoros", detail: "18,240 farmers, KES 136.4M." },
+  { id: "au_94", at: "2026-11-06T07:12:00Z", actor: "Grace Mumbi", actorRole: "Payments operations", category: "approval", action: "Proposed", target: "Payment run PR-2026-11-06", detail: "October green leaf payment from three factory files." },
+  { id: "au_93", at: "2026-11-05T19:40:00Z", actor: "Kevin Baraka", actorRole: "Compliance manager", category: "compliance", action: "Held payment", target: "October bonus for GN-120955", detail: "Number changed two days before the bonus run." },
+  { id: "au_92", at: "2026-11-05T13:00:00Z", actor: "Mercy Wanjala", actorRole: "Customer service", category: "data", action: "Acknowledged enquiry", target: "Payment notice went to my old number", detail: "GN-142078 via call centre." },
+  { id: "au_91", at: "2026-11-04T11:40:00Z", actor: "Mercy Wanjala", actorRole: "Customer service", category: "config", action: "Updated voucher list", target: "Othaya Farm Inputs (M-10233)", detail: "Added NPK 23:23:0." },
+  { id: "au_90", at: "2026-11-03T08:00:00Z", actor: "Faith Kamau", actorRole: "Farmer engagement officer", category: "data", action: "Sent campaign", target: "Fertiliser vouchers: where to redeem", detail: "6,412 farmers at Chinga, Gitugi and Ndima." },
+  { id: "au_89", at: "2026-11-02T10:00:00Z", actor: "IT Admin", actorRole: "System Admin", category: "security", action: "Completed", target: "Monthly access review", detail: "All roles checked against the page-access list." },
+  { id: "au_88", at: "2026-11-01T06:00:00Z", actor: "Daniel Kiptoo", actorRole: "Head of Finance", category: "report", action: "Generated", target: "October transactions summary", detail: "Payments, cash-outs, Pay to M-PESA and merchant sales." },
 ];
 
 /** Seeds chained oldest→newest at module load — never hand-write hashes. */

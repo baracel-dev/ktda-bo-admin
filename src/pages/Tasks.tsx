@@ -115,7 +115,7 @@ export default function Tasks() {
       <PageHeader
         title="Follow-ups"
         tooltip="Tasks are raised three ways: manually, by a service standard falling due, or as the 'next action' on a logged interaction. The source column says which."
-        subtitle="One queue for everything owed to a customer or a prospect."
+        subtitle="One queue for everything owed to a farmer, an agent or a merchant."
         actions={<Button onClick={() => setOpen(true)}>New task</Button>}
       />
 

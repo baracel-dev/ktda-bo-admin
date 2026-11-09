@@ -421,77 +421,65 @@ export type ComplianceCase = {
 
 export const COMPLIANCE_CASES: ComplianceCase[] = [
   {
-    id: "cs_1", type: "aml", title: "Structuring pattern — Brian Otieno", summary: "Four deposits of KES 9,800–9,950 inside 48 hours, each just under the review threshold. Pattern consistent with deliberate structuring.",
-    clientId: "inv_3350", clientName: "Brian Otieno", linkedAlertIds: ["aml_1"], severity: "high", status: "investigating", assignee: "Peter Otieno",
-    openedAt: "2026-08-06T11:30:00Z", openedBy: "Peter Otieno", dueAt: "2026-08-13",
+    id: "cs_1", type: "aml", title: "Cash-outs split across agents: Wilson Kipngeno Rotich", summary: "Five cash-outs of KES 9,800 to 9,950 at three Bomet agents inside 36 hours, each just under the review line, the day after the October payment.",
+    clientId: "GN-163842", clientName: "Wilson Kipngeno Rotich", linkedAlertIds: ["aml_1"], severity: "high", status: "investigating", assignee: "Peter Otieno",
+    openedAt: "2026-11-07T11:30:00Z", openedBy: "Peter Otieno", dueAt: "2026-11-14",
     notes: [
-      { id: "cn_1", at: "2026-08-06T11:30:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Case opened from alert aml_1. Deposit timing clusters around 21:00–23:00 — requesting device and session logs.", kind: "note" },
-      { id: "cn_2", at: "2026-08-07T09:15:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Source-of-funds documents requested from client as part of parallel EDD.", kind: "note" },
+      { id: "cn_1", at: "2026-11-07T11:30:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Case opened from alert aml_1. All five cash-outs were late evening; asking the three agents for their cash-out registers.", kind: "note" },
+      { id: "cn_2", at: "2026-11-08T09:15:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Kapkoros factory confirms 2,630 kg delivered in October, so the KES 48,600 payment is right. The question is who collected the cash.", kind: "note" },
     ],
     evidence: [
-      { id: "ce_1", label: "Alert aml_1 — structuring pattern", type: "external", ref: "aml_1", addedAt: "2026-08-06T11:30:00Z", addedBy: "Peter Otieno" },
-      { id: "ce_2", label: "EDD questionnaire (submitted)", type: "document_ref", ref: "doc_11", addedAt: "2026-08-07T14:10:00Z", addedBy: "Peter Otieno" },
+      { id: "ce_1", label: "Alert aml_1: cash-outs split across agents", type: "external", ref: "aml_1", addedAt: "2026-11-07T11:30:00Z", addedBy: "Peter Otieno" },
+      { id: "ce_2", label: "Kapkoros October delivery record", type: "document_ref", addedAt: "2026-11-08T09:10:00Z", addedBy: "Peter Otieno" },
     ],
   },
   {
-    id: "cs_2", type: "fraud", title: "Duplicate STK charge — Amina Wanjiru", summary: "Investor charged twice by a duplicated Daraja callback for one subscription. Refund proposed via payment release ap_8; investigating whether the duplication was exploitable rather than accidental.",
-    clientId: "inv_2891", clientName: "Amina Wanjiru", linkedAlertIds: ["fr_5"], severity: "medium", status: "investigating", assignee: "Peter Otieno",
-    openedAt: "2026-08-08T08:30:00Z", openedBy: "Grace Mumbi (Operations)", dueAt: "2026-08-15",
+    id: "cs_2", type: "fraud", title: "Number changed before the bonus: Samuel Mwangi Gichuki", summary: "The farmer's line was changed through an agent two days before the October bonus run, to a line registered to someone else. The bonus is held until the farmer is seen at Gitugi factory.",
+    clientId: "GN-120955", clientName: "Samuel Mwangi Gichuki", linkedAlertIds: ["fr_2"], severity: "high", status: "investigating", assignee: "Kevin Baraka",
+    openedAt: "2026-11-05T19:40:00Z", openedBy: "Kevin Baraka", dueAt: "2026-11-12",
     notes: [
-      { id: "cn_3", at: "2026-08-08T08:30:00Z", by: "Grace Mumbi", byRole: "Operations", text: "Referred from payment ops — duplicate callback signature matches a known Daraja retry edge case, but flagging for fraud review per SOP.", kind: "note" },
+      { id: "cn_3", at: "2026-11-05T19:40:00Z", by: "Kevin Baraka", byRole: "Fraud", text: "Bonus of KES 21,300 held. Called the farmer's old number; he says he never asked for a change.", kind: "note" },
+      { id: "cn_4", at: "2026-11-06T11:20:00Z", by: "Peter Otieno", byRole: "Compliance", text: "The change was made by agent AG-2077. Its other number changes this month are being checked.", kind: "decision" },
     ],
     evidence: [
-      { id: "ce_3", label: "Refund payment release ap_8", type: "transaction_ref", ref: "ap_8", addedAt: "2026-08-08T08:30:00Z", addedBy: "Grace Mumbi" },
-      { id: "ce_4", label: "Subscription tx_9001 (original charge)", type: "transaction_ref", ref: "tx_9001", addedAt: "2026-08-08T08:32:00Z", addedBy: "Grace Mumbi" },
+      { id: "ce_3", label: "Alert fr_2: number changed before a bonus", type: "external", ref: "fr_2", addedAt: "2026-11-05T19:40:00Z", addedBy: "Kevin Baraka" },
+      { id: "ce_4", label: "Number change request by agent AG-2077", type: "transaction_ref", addedAt: "2026-11-06T11:15:00Z", addedBy: "Peter Otieno" },
     ],
   },
   {
-    id: "cs_5", type: "fraud", title: "Payout name mismatch — Cynthia Njeri", summary: "Redemption payout account is registered to 'C. NJERI ENTERPRISES' rather than the client. Third-party payment indicator (TM-005): payout held pending proof the account is the client's own.",
-    clientId: "inv_3122", clientName: "Cynthia Njeri", linkedAlertIds: ["fr_1"], severity: "high", status: "open", assignee: "Kevin Baraka",
-    openedAt: "2026-08-17T09:05:00Z", openedBy: "Kevin Baraka", dueAt: "2026-08-24",
+    id: "cs_5", type: "fraud", title: "One farmer cashed out repeatedly: agent Kiprotich Agencies", summary: "Agent AG-2041 cashed out farmer GN-104233 nine times in four days, just after midnight each time. The farmer says he has not been to the agent this month.",
+    clientId: "AG-2041", clientName: "Kiprotich Agencies (agent)", linkedAlertIds: ["fr_3"], severity: "medium", status: "open", assignee: "Peter Otieno",
+    openedAt: "2026-11-08T08:05:00Z", openedBy: "Peter Otieno", dueAt: "2026-11-15",
     notes: [
-      { id: "cn_8", at: "2026-08-17T09:05:00Z", by: "Kevin Baraka", byRole: "Institutional Funds Compliance Manager", text: "Payout suspended and the client asked for a bank letter in their own name. No funds have left the collection account.", kind: "note" },
+      { id: "cn_8", at: "2026-11-08T08:05:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Agent float suspended pending a visit by the Litein field officer.", kind: "note" },
     ],
     evidence: [
-      { id: "ce_7", label: "Alert fr_1 — payout name mismatch", type: "external", ref: "fr_1", addedAt: "2026-08-17T09:05:00Z", addedBy: "Kevin Baraka" },
+      { id: "ce_7", label: "Alert fr_3: agent cashing out one farmer repeatedly", type: "external", ref: "fr_3", addedAt: "2026-11-08T08:05:00Z", addedBy: "Peter Otieno" },
     ],
   },
   {
-    id: "cs_6", type: "fraud", title: "Account-takeover indicators — Brian Otieno", summary: "New device and SIM registered 14 minutes before a full redemption request. Session and device logs pulled; redemption held until the client is re-verified on a known channel.",
-    clientId: "inv_3350", clientName: "Brian Otieno", linkedAlertIds: ["fr_2"], severity: "high", status: "investigating", assignee: "Kevin Baraka",
-    openedAt: "2026-08-16T19:40:00Z", openedBy: "Kevin Baraka", dueAt: "2026-08-21",
+    id: "cs_3", type: "abc", title: "Gift declaration: agro-dealer hospitality", summary: "A field officer declared a hamper from an agro-dealer applying to accept vouchers. Reviewed against the gifts register.",
+    clientName: "Internal", linkedAlertIds: [], severity: "low", status: "closed_cleared", assignee: "Peter Otieno",
+    openedAt: "2026-11-02T10:00:00Z", openedBy: "Faith Kamau",
     notes: [
-      { id: "cn_9", at: "2026-08-16T19:40:00Z", by: "Kevin Baraka", byRole: "Institutional Funds Compliance Manager", text: "Redemption held. Client callback attempted on the registered number — no answer; second attempt scheduled.", kind: "note" },
-      { id: "cn_10", at: "2026-08-17T11:20:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Device fingerprint does not match any prior session for this file. Keep the hold until voice verification completes.", kind: "decision" },
+      { id: "cn_4b", at: "2026-11-02T10:00:00Z", by: "Faith Kamau", byRole: "Field operations", text: "Declared a KES 6,000 hamper from Meru Fertiliser Depot.", kind: "note" },
+      { id: "cn_5", at: "2026-11-03T16:00:00Z", by: "Peter Otieno", byRole: "Compliance", text: "The officer has no part in approving merchants. Recorded in the gifts register; no further action.", kind: "decision" },
     ],
-    evidence: [
-      { id: "ce_8", label: "Alert fr_2 — device change before withdrawal", type: "external", ref: "fr_2", addedAt: "2026-08-16T19:40:00Z", addedBy: "Kevin Baraka" },
-    ],
+    evidence: [{ id: "ce_5", label: "Gifts register entry GR-2026-031", type: "external", addedAt: "2026-11-02T10:05:00Z", addedBy: "Faith Kamau" }],
+    closedAt: "2026-11-03T16:00:00Z", closedBy: "Peter Otieno", closeRationale: "Register entry is enough; the officer has no say in the merchant's approval.",
   },
   {
-    id: "cs_3", type: "abc", title: "Gift declaration — IFA introduction dinner", summary: "IFA-hosted client dinner exceeding the gift & hospitality threshold declared by a BD Officer. Reviewed against the ABC register.",
-    clientName: "— (internal)", linkedAlertIds: [], severity: "low", status: "closed_cleared", assignee: "Peter Otieno",
-    openedAt: "2026-07-20T10:00:00Z", openedBy: "Faith Kamau (BD)",
+    id: "cs_4", type: "sar", title: "Cash-outs collected for others: Bomet agents", summary: "Case cs_1 escalated: the same three agents show split cash-outs for four more Kapkoros farmers. Awaiting the MLRO's decision on a suspicious transaction report.",
+    clientId: "GN-163842", clientName: "Wilson Kipngeno Rotich", linkedAlertIds: ["aml_1"], severity: "high", status: "escalated_mlro", assignee: "Josephine Muthoni",
+    openedAt: "2026-11-08T10:00:00Z", openedBy: "Peter Otieno", dueAt: "2026-11-13",
     notes: [
-      { id: "cn_4", at: "2026-07-20T10:00:00Z", by: "Faith Kamau", byRole: "BD Officer", text: "Declared KES 24,000 hospitality from Mutuku Wealth Advisors — above the register threshold.", kind: "note" },
-      { id: "cn_5", at: "2026-07-22T16:00:00Z", by: "Peter Otieno", byRole: "Compliance", text: "No procurement or referral decision pending with this IFA in the period. Recorded in the gift register; no further action.", kind: "decision" },
-    ],
-    evidence: [{ id: "ce_5", label: "Gift register entry GR-2026-014", type: "external", addedAt: "2026-07-20T10:05:00Z", addedBy: "Faith Kamau" }],
-    closedAt: "2026-07-22T16:00:00Z", closedBy: "Peter Otieno", closeRationale: "Register entry sufficient; below corruption-risk bar once context reviewed.",
-  },
-  {
-    id: "cs_4", type: "sar", title: "Suspected smurfing network — Brian Otieno", summary: "Structuring case cs_1 escalated: deposit sources trace to three distinct M-Pesa lines cycling similar amounts. Awaiting MLRO decision on STR filing.",
-    clientId: "inv_3350", clientName: "Brian Otieno", linkedAlertIds: ["aml_1"], severity: "high", status: "escalated_mlro", assignee: "Josephine Muthoni",
-    openedAt: "2026-08-08T10:00:00Z", openedBy: "Peter Otieno", dueAt: "2026-08-14",
-    notes: [
-      { id: "cn_6", at: "2026-08-08T10:00:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Escalating to MLRO — multi-line deposit pattern goes beyond single-client structuring.", kind: "escalation" },
-      { id: "cn_7", at: "2026-08-08T15:40:00Z", by: "Josephine Muthoni", byRole: "MLRO", text: "Reviewing session logs and the three source lines. Decision within SLA.", kind: "note" },
+      { id: "cn_6", at: "2026-11-08T10:00:00Z", by: "Peter Otieno", byRole: "Compliance", text: "Escalating to the MLRO: the pattern goes beyond one farmer.", kind: "escalation" },
+      { id: "cn_7", at: "2026-11-08T15:40:00Z", by: "Josephine Muthoni", byRole: "MLRO", text: "Reviewing the agents' registers. Decision within the standard.", kind: "note" },
     ],
     evidence: [
-      { id: "ce_6", label: "Case cs_1 investigation file", type: "external", ref: "cs_1", addedAt: "2026-08-08T10:00:00Z", addedBy: "Peter Otieno" },
-      { id: "ce_7", label: "M-Pesa source-line analysis", type: "external", addedAt: "2026-08-08T15:30:00Z", addedBy: "Josephine Muthoni" },
+      { id: "ce_6", label: "Case cs_1 file", type: "external", ref: "cs_1", addedAt: "2026-11-08T10:00:00Z", addedBy: "Peter Otieno" },
     ],
-    sar: { escalatedAt: "2026-08-08T10:00:00Z", escalatedBy: "Peter Otieno" },
+    sar: { escalatedAt: "2026-11-08T10:00:00Z", escalatedBy: "Peter Otieno" },
   },
 ];
 
@@ -510,19 +498,28 @@ export const COMPLAINT_STATUS_LABELS: Record<ComplaintStatus, string> = {
 export type ComplaintCategory = "transaction" | "service" | "fees" | "onboarding" | "data_privacy" | "other";
 
 export const COMPLAINT_CATEGORY_LABELS: Record<ComplaintCategory, string> = {
-  transaction: "Transaction",
+  transaction: "Payment",
   service: "Service",
-  fees: "Fees & charges",
-  onboarding: "Onboarding",
+  fees: "Charges",
+  onboarding: "Registration",
   data_privacy: "Data & privacy",
   other: "Other",
+};
+
+export type ComplaintChannel = "ussd" | "agent" | "call_centre" | "app";
+
+export const COMPLAINT_CHANNEL_LABELS: Record<ComplaintChannel, string> = {
+  ussd: "USSD",
+  agent: "agent",
+  call_centre: "call centre",
+  app: "app",
 };
 
 export type Complaint = {
   id: string;
   clientId?: string;
   clientName: string;
-  channel: "app" | "email" | "phone" | "branch";
+  channel: ComplaintChannel;
   category: ComplaintCategory;
   subject: string;
   description: string;
@@ -537,31 +534,42 @@ export type Complaint = {
 
 export const COMPLAINTS: Complaint[] = [
   {
-    id: "cp_1", clientId: "inv_2891", clientName: "Amina Wanjiru", channel: "app", category: "transaction",
-    subject: "Charged twice for one investment", description: "I invested KES 50,000 on 1 August and M-Pesa deducted it twice. Only one investment shows in my account.",
-    status: "investigating", assignee: "Grace Mumbi", submittedAt: "2026-08-08T07:50:00Z", acknowledgedAt: "2026-08-08T08:20:00Z",
+    id: "cp_1", clientId: "GN-118407", clientName: "Grace Chepkemoi Koech", channel: "agent", category: "transaction",
+    subject: "Cash-out taken from wallet but no cash given", description: "Agent AG-2041 said the KES 6,000 cash-out failed, but my wallet was debited. I want the money back.",
+    status: "investigating", assignee: "Grace Mumbi", submittedAt: "2026-11-06T07:50:00Z", acknowledgedAt: "2026-11-06T08:20:00Z",
     history: [
-      { at: "2026-08-08T07:50:00Z", by: "Amina Wanjiru", action: "Submitted via app" },
-      { at: "2026-08-08T08:20:00Z", by: "Faith Kamau", action: "Acknowledged", note: "Within 1-business-day SLA." },
-      { at: "2026-08-08T08:35:00Z", by: "Grace Mumbi", action: "Assigned to Operations", note: "Linked to duplicate-STK refund ap_8 and fraud case review." },
+      { at: "2026-11-06T07:50:00Z", by: "Grace Chepkemoi Koech", action: "Raised through agent AG-2041" },
+      { at: "2026-11-06T08:20:00Z", by: "Mercy Wanjala", action: "Acknowledged", note: "Within the one-business-day standard." },
+      { at: "2026-11-06T08:35:00Z", by: "Grace Mumbi", action: "Assigned to Operations", note: "Matching the agent's cash-out record with the wallet debit." },
     ],
   },
   {
-    id: "cp_2", clientId: "inv_2601", clientName: "Esther Chebet", channel: "email", category: "service",
-    subject: "July statement not received", description: "My July statement email never arrived; I need it for my records.",
-    status: "resolved", assignee: "Faith Kamau", submittedAt: "2026-08-04T10:00:00Z", acknowledgedAt: "2026-08-04T10:30:00Z", resolvedAt: "2026-08-04T15:00:00Z",
-    resolution: "Statement re-sent and email address typo corrected in the register (maker-checker amendment).",
+    id: "cp_2", clientId: "GN-150311", clientName: "Agnes Moraa Nyaboke", channel: "call_centre", category: "fees",
+    subject: "Charged for Pay to M-PESA twice", description: "I sent KES 5,000 to my M-PESA once and was charged the fee twice.",
+    status: "resolved", assignee: "Grace Mumbi", submittedAt: "2026-11-03T10:00:00Z", acknowledgedAt: "2026-11-03T10:30:00Z", resolvedAt: "2026-11-03T15:00:00Z",
+    resolution: "The second fee came from a retried request. KES 33 refunded to the wallet the same day.",
     history: [
-      { at: "2026-08-04T10:00:00Z", by: "Esther Chebet", action: "Submitted via email" },
-      { at: "2026-08-04T10:30:00Z", by: "Faith Kamau", action: "Acknowledged" },
-      { at: "2026-08-04T15:00:00Z", by: "Faith Kamau", action: "Resolved", note: "Static-data amendment approved same day." },
+      { at: "2026-11-03T10:00:00Z", by: "Agnes Moraa Nyaboke", action: "Called the call centre" },
+      { at: "2026-11-03T10:30:00Z", by: "Mercy Wanjala", action: "Acknowledged" },
+      { at: "2026-11-03T15:00:00Z", by: "Grace Mumbi", action: "Resolved", note: "Refund approved by a second staff member." },
     ],
   },
   {
-    id: "cp_3", clientName: "Walk-in enquirer", channel: "branch", category: "onboarding",
-    subject: "Onboarding stuck at document upload", description: "Branch visitor reports the app rejects their proof of address photo repeatedly.",
-    status: "new", submittedAt: "2026-08-09T08:40:00Z",
-    history: [{ at: "2026-08-09T08:40:00Z", by: "Branch — Westlands", action: "Recorded at branch" }],
+    id: "cp_3", clientId: "GN-142078", clientName: "Peter Kimathi M'Ikiara", channel: "ussd", category: "onboarding",
+    subject: "Registered with the wrong phone number", description: "My wallet was opened on my old number at bulk registration. Payment notices go to my wife's phone.",
+    status: "new", submittedAt: "2026-11-09T08:40:00Z",
+    history: [{ at: "2026-11-09T08:40:00Z", by: "Peter Kimathi M'Ikiara", action: "Raised on USSD" }],
+  },
+  {
+    id: "cp_4", clientId: "GN-131620", clientName: "Lucy Wanjiku Ndirangu", channel: "app", category: "service",
+    subject: "Voucher refused at the agro-dealer", description: "Othaya Farm Inputs would not take my fertiliser voucher for NPK.",
+    status: "closed", assignee: "Mercy Wanjala", submittedAt: "2026-11-04T09:10:00Z", acknowledgedAt: "2026-11-04T09:22:00Z", resolvedAt: "2026-11-04T11:48:00Z",
+    resolution: "NPK 23:23:0 added to the merchant's voucher list; the farmer redeemed the voucher that afternoon.",
+    history: [
+      { at: "2026-11-04T09:10:00Z", by: "Lucy Wanjiku Ndirangu", action: "Raised in the app" },
+      { at: "2026-11-04T11:48:00Z", by: "Mercy Wanjala", action: "Resolved" },
+      { at: "2026-11-05T09:00:00Z", by: "Mercy Wanjala", action: "Closed", note: "Farmer confirmed by SMS." },
+    ],
   },
 ];
 

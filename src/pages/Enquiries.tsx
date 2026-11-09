@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { ENQUIRY_CHANNEL_LABELS, ENQUIRY_STATUS_LABELS, type EnquiryRow } from "../mock";
 import {
   getEnquiries, getCrmOwners, acknowledgeEnquiry, assignEnquiry, resolveEnquiry,
-  convertEnquiryToLead,
 } from "../lib/api";
 import {
   PageHeader, Badge, DataTable, Skeleton, Button, Modal, Field, Textarea,
@@ -13,10 +12,9 @@ import { Inbox, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useAuth, ADMIN_USERS } from "../lib/auth";
 import { useAsyncData } from "../lib/useAsyncData";
 
-/** Enquiry desk. Before this, `enquiry_ack_days` was a service standard in
- * Platform Settings with nothing to measure against — the BD SOP requires that
- * every enquiry be "acknowledged, classified and routed", and none of the
- * three was auditable.
+/** Farmers' support requests: a missing payment, a wrong number, a cash-out
+ * not received from an agent, a voucher not accepted. Each is acknowledged,
+ * classified and routed, against the acknowledgement standard.
  *
  * The SLA is counted in BUSINESS days, per the SOP's own wording. Calendar
  * days would flag weekends as breaches and let a genuine Friday-to-Tuesday
@@ -110,12 +108,12 @@ export default function Enquiries() {
     <div>
       <PageHeader
         title="Enquiries"
-        tooltip="Every inbound question, from any channel, with the acknowledgement clock running against the service standard in Platform Settings. 'Routed to' comes from a rule per category, not from whoever picked it up."
-        subtitle="First-line intake. The BD SOP requires every enquiry to be acknowledged, classified and routed — this is where that becomes measurable."
+        tooltip="Every request from a farmer, from any channel, with the acknowledgement clock running against the one-business-day standard. 'Routed to' comes from a rule per category, not from whoever picked it up."
+        subtitle="Farmers' support requests raised on USSD, through an agent, at the call centre or in the app."
       />
 
       <StatRail className="mb-5">
-        <GlassStat label="Open" value={open} icon={<Inbox size={17} />} tone="primary" hint="not yet resolved or converted" />
+        <GlassStat label="Open" value={open} icon={<Inbox size={17} />} tone="primary" hint="not yet resolved" />
         <GlassStat
           label="Unacknowledged"
           value={unacknowledged}
@@ -175,14 +173,14 @@ export default function Enquiries() {
         {detail && (
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <Meta label="From" value={detail.name} />
+              <Meta label="From" value={detail.clientId ? `${detail.name} (${detail.clientId})` : detail.name} />
               <Meta label="Contact" value={detail.contact} />
               <Meta label="Channel" value={detail.channelLabel} />
               <Meta label="Category" value={detail.categoryLabel} />
             </div>
 
             <div className="rounded-lg border border-border bg-surface-sunken p-3">
-              <div className="text-xs text-text-faint mb-1">What they asked</div>
+              <div className="text-xs text-text-faint mb-1">What the farmer said</div>
               <p className="text-[13px] text-text leading-relaxed">{detail.body}</p>
             </div>
 
@@ -230,15 +228,6 @@ export default function Enquiries() {
 
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
-              {!detail.clientId && !detail.convertedLeadId && (
-                <Button
-                  variant="secondary"
-                  onClick={() => act("convert", () => convertEnquiryToLead(detail.id, me), "Converted — the lead carries this enquiry as its source.")}
-                  disabled={busy === "convert"}
-                >
-                  {busy === "convert" ? "Converting…" : "Convert to lead"}
-                </Button>
-              )}
               {detail.status !== "resolved" && detail.status !== "converted" && (
                 <Button
                   onClick={() => act("resolve", () => resolveEnquiry(detail.id, resolution, me), "Resolved.")}

@@ -51,8 +51,8 @@ export default function AuditLog() {
       header: "Linked record",
       render: (r) =>
         r.entityId ? (
-          r.entityType === "client" || r.entityType === "case" ? (
-            <Link to={`/${r.entityType === "client" ? "clients" : "cases"}/${r.entityId}`} className="text-xs text-primary-600 font-medium tabular">
+          r.entityType === "case" ? (
+            <Link to={`/cases/${r.entityId}`} className="text-xs text-primary-600 font-medium tabular">
               {r.entityType} {r.entityId}
             </Link>
           ) : (
@@ -93,7 +93,7 @@ export default function AuditLog() {
       <PageHeader
         title="Audit log"
         tooltip="A tamper-evident, hash-chained trail: each event's hash covers the previous one, so any edit or deletion breaks the chain and is detectable."
-        subtitle="Every configuration change, security action, approval, compliance decision and report run — linked to the customer, case or wallet it concerns."
+        subtitle="Every configuration change, security action, approval, compliance decision and report run, linked to the farmer, case or wallet it concerns."
         actions={
           chain && (
             <Badge tone={chain.intact ? "success" : "danger"}>

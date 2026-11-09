@@ -241,16 +241,125 @@ test("farmer register: tiles from the summary, the rows, and the filters sent to
   await expect.poll(() => sent.some((s) => s.path === "/farmers" && s.query.get("kyc") === "PENDING" && s.query.get("size") === "100")).toBe(true);
 });
 
-test("farmer register: past 10 pages of 100 it says first N rows", async ({ page }) => {
-  await stub(page, {
+test("farmer register: it stops at 1,000 by default, says first N of M, and Load all reads the rest", async ({ page }) => {
+  const sent = await stub(page, {
     farmers: (q) => {
       const p = Number(q.get("page")) || 1;
-      return { items: Array.from({ length: 100 }, (_, i) => farmer(`G${p}-${i}`)), total: 1500 };
+      return { items: Array.from({ length: p <= 14 ? 100 : 75 }, (_, i) => farmer(`G${p}-${i}`)), total: 1475 };
     },
   });
   await page.goto("/reports?report=farmer-register");
-  await expect(page.getByTestId("report-meta")).toContainText("First 1,000 rows");
-  await expect(page.getByTestId("report-capped")).toBeVisible();
+  await expect(page.getByTestId("report-meta")).toContainText("First 1,000 of 1,475 rows");
+  const progress = page.getByTestId("report-progress");
+  await expect(progress).toContainText("Loaded 1,000 of 1,475 farmers. Stopped at 1,000");
+  expect(Math.max(...sent.filter((x) => x.path === "/farmers").map((x) => Number(x.query.get("page"))))).toBe(10);
+
+  await progress.getByRole("button", { name: "Load all 1,475" }).click();
+  await expect(page.getByTestId("report-meta")).toContainText("1,475 rows");
+  await expect(page.getByTestId("report-progress")).toHaveCount(0);
+  expect(Math.max(...sent.filter((x) => x.path === "/farmers").map((x) => Number(x.query.get("page"))))).toBe(15);
+});
+
+/** Farmers paged 100 at a time out of `total`; pages after the first wait for `release()`. */
+async function slowFarmers(page: Page, total: number) {
+  let open: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { open = r; });
+  const pages: number[] = [];
+  await page.route(/\/omni\/api\/operator\/farmers(\?|$)/, async (route) => {
+    const url = new URL(route.request().url());
+    const p = Number(url.searchParams.get("page")) || 1;
+    pages.push(p);
+    if (p > 1) await gate;
+    const n = Math.max(0, Math.min(100, total - (p - 1) * 100));
+    const items = Array.from({ length: n }, (_, i) => farmer(`G${String((p - 1) * 100 + i + 1).padStart(5, "0")}`));
+    try {
+      await route.fulfill({ status: 200, contentType: "application/json", headers: paged(items, total, p), body: JSON.stringify(items) });
+    } catch { /* the page went away */ }
+  });
+  return { release: () => open(), pages };
+}
+
+test("the first page shows with its tiles before the rest has loaded, then the table grows", async ({ page }) => {
+  await stub(page);
+  const slow = await slowFarmers(page, 450);
+  await page.goto("/reports?report=farmer-register");
+  await expect(page.getByTestId("report-meta")).toContainText("First 100 of 450 rows");
+  await expect(page.getByTestId("report-tiles")).toContainText("Registered");
+  await expect(page.getByTestId("report-progress")).toContainText("Loaded 100 of 450 farmers…");
+  await expect(page.getByTestId("report-table").locator("tbody tr")).toHaveCount(100);
+  slow.release();
+  await expect(page.getByTestId("report-meta")).toContainText("450 rows");
+  await expect(page.getByTestId("report-progress")).toHaveCount(0);
+});
+
+test("the table is paged over the rows loaded: 200 a page by default, a choice of size, Previous and Next", async ({ page }) => {
+  await stub(page);
+  const slow = await slowFarmers(page, 450);
+  slow.release();
+  await page.goto("/reports?report=farmer-register");
+  await expect(page.getByTestId("report-meta")).toContainText("450 rows");
+  const rows = page.getByTestId("report-table").locator("tbody tr");
+  await expect(rows).toHaveCount(200);
+  const pager = page.getByTestId("report-pager");
+  await expect(pager.getByTestId("report-showing")).toHaveText("Showing 1–200 of 450");
+  await pager.getByRole("button", { name: "Next" }).click();
+  await expect(pager.getByTestId("report-showing")).toHaveText("Showing 201–400 of 450");
+  await expect(rows.first()).toContainText("G00201");
+  await pager.getByRole("button", { name: "Next" }).click();
+  await expect(rows).toHaveCount(50);
+  await expect(pager.getByRole("button", { name: "Next" })).toBeDisabled();
+  await pager.getByLabel("Rows per page").selectOption("50");
+  await expect(rows).toHaveCount(50);
+  await expect(pager.getByTestId("report-showing")).toHaveText("Showing 1–50 of 450");
+  await expect(pager.getByRole("button", { name: "Previous" })).toBeDisabled();
+  // The exports still carry every row loaded, not just the page shown.
+  const csv = await downloaded(page, "CSV");
+  expect(csv.bytes.toString("utf8").trim().split("\r\n")).toHaveLength(1 + 450);
+});
+
+test("an export while rows are still loading says first N of M in its header", async ({ page }) => {
+  await stub(page);
+  await slowFarmers(page, 450);
+  await page.goto("/reports?report=farmer-register");
+  await expect(page.getByTestId("report-progress")).toContainText("Loaded 100 of 450 farmers…");
+  const x = await downloaded(page, "Excel");
+  const sheet = x.bytes.toString("utf8");
+  expect(sheet).toContain("First 100 of 450 rows");
+  expect(sheet.match(/<row /g)).toHaveLength(5 + 1 + 100); // institution, report, at, by, rows; the header row; the rows
+});
+
+test("leaving a report stops its reading", async ({ page }) => {
+  await stub(page);
+  const slow = await slowFarmers(page, 2000);
+  await page.goto("/reports?report=farmer-register");
+  await expect(page.getByTestId("report-progress")).toContainText("Loaded 100 of 2,000 farmers…");
+  await page.getByTestId("report-list").locator('[data-report="payment-runs"]').click();
+  await expect(page.getByTestId("report-table")).toContainText("ktda-pay-1.csv");
+  slow.release();
+  // The page in flight lands; nothing after it is asked for.
+  await page.waitForTimeout(500);
+  expect(Math.max(...slow.pages)).toBe(2);
+});
+
+test("other multi-page reports show their first page at once too (KYC decisions)", async ({ page }) => {
+  await stub(page);
+  let open: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { open = r; });
+  await page.route(/\/omni\/api\/operator\/farmers(\?|$)/, async (route) => {
+    const url = new URL(route.request().url());
+    const p = Number(url.searchParams.get("page")) || 1;
+    if (p > 1) await gate;
+    const kyc = url.searchParams.get("kyc");
+    const items = Array.from({ length: p === 1 ? 100 : 20 }, (_, i) => farmer(`${kyc}-${p}-${i}`, { kyc: { status: kyc, identityResult: "MATCH", startedAt: null, decidedAt: "2026-11-04T08:00:00Z", note: null } }));
+    try {
+      await route.fulfill({ status: 200, contentType: "application/json", headers: paged(items, 120, p), body: JSON.stringify(items) });
+    } catch { /* gone */ }
+  });
+  await page.goto("/reports?report=kyc-decisions");
+  await expect(page.getByTestId("report-progress")).toContainText("Loaded 200 of 240 farmers…");
+  await expect(page.getByTestId("report-table").locator("tbody tr")).toHaveCount(200);
+  open();
+  await expect(page.getByTestId("report-meta")).toContainText("240 rows");
 });
 
 test("agent commissions: the columns and a totals row", async ({ page }) => {

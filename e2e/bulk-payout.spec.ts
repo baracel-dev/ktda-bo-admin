@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { envelope, json, signIn } from "./stubs";
+import { ME, OTHER, envelope, json, signIn } from "./stubs";
 
 /* Pay to M-PESA (bulk-loads flow PAYOUT), stubbed: the same payment file,
  * upload, process and release as a wallet credit run, but each row is drawn
@@ -24,11 +24,14 @@ const run = (over: Obj = {}): Obj => ({
 
 const ROWS: Record<string, Obj[]> = {
   SENT: [
-    { row: 1, growerNo: "KTDA000001", amount: 1500, currency: "KES", paymentRef: "PO-2026-11-0001", outcome: "SENT", message: null, paymentId: "SP-0001", at: "2026-11-09T08:00:02Z" },
-    { row: 2, growerNo: "KTDA000002", amount: 2500, currency: "KES", paymentRef: "PO-2026-11-0002", outcome: "SENT", message: null, paymentId: "SP-0002", at: "2026-11-09T08:00:02Z" },
+    { row: 1, grower: "KTDA000001", amount: 1500, currency: "KES", paymentRef: "PO-2026-11-0001", outcome: "SENT", message: null, paymentId: "SP-0001", at: "2026-11-09T08:00:02Z" },
+    { row: 2, grower: "KTDA000002", amount: 2500, currency: "KES", paymentRef: "PO-2026-11-0002", outcome: "SENT", message: null, paymentId: "SP-0002", at: "2026-11-09T08:00:02Z" },
+  ],
+  PLANNED: [
+    { row: 1, grower: "KTDA000001", amount: 1500, currency: "KES", paymentRef: "PO-2026-11-0001", outcome: "PLANNED", message: null, paymentId: null, at: null },
   ],
   FAILED: [
-    { row: 3, growerNo: "KTDA000003", amount: 1000, currency: "KES", paymentRef: "PO-2026-11-0003", outcome: "FAILED", message: PROVIDER_SAYS, paymentId: null, at: "2026-11-09T08:00:03Z" },
+    { row: 3, grower: "KTDA000003", amount: 1000, currency: "KES", paymentRef: "PO-2026-11-0003", outcome: "FAILED", message: PROVIDER_SAYS, paymentId: null, at: "2026-11-09T08:00:03Z" },
   ],
 };
 
@@ -74,7 +77,8 @@ async function stub(page: Page, opts: {
       const out = opts.upload ?? { status: 202, body: run() };
       return json(route, out.body, out.status);
     }
-    if (req.method() === "POST" && path === `/${RUN}/process`) return json(route, run());
+    // Checked at upload and SUBMITTED: it starts on a second operator's release.
+    if (req.method() === "POST" && path === `/${RUN}/process`) return json(route, envelope(409, "A payout run starts when a second member of staff releases it.", "RELEASE_REQUIRED"), 409);
     if (path === "/onboarding-status") return json(route, opts.status ?? { onboardingCompleted: true, registrationCompleted: true, payoutReady: true });
     if (path === "") return json(route, opts.recent ?? []);
     if (path === `/${RUN}`) {
@@ -83,8 +87,9 @@ async function stub(page: Page, opts: {
       poll++;
       return json(route, r);
     }
+    if (path === `/${RUN}/reconciliation`) return json(route, opts.recon ?? recon());
+    if (path === `/${RUN}/rows` && req.headers()["accept"]?.includes("text/csv")) return route.fulfill({ status: 200, contentType: "text/csv", headers: { "Content-Disposition": `attachment; filename="${RUN}-payouts.csv"` }, body: "row,grower,amount\n1,KTDA000001,1500.00\n" });
     if (path === `/${RUN}/rows`) return paged(route, ROWS[url.searchParams.get("outcome") ?? ""] ?? []);
-    if (path === `/${RUN}/reconciliation`) return json(route, opts.recon ?? { runId: RUN, flow: "PAYOUT", status: "PARTIAL", sentCount: 2, sentAmount: 4000, failedCount: 1, failedAmount: 1000, refusedCount: 0, refusedAmount: 0, alreadyPaidCount: 0, alreadyPaidAmount: 0 });
     if (path === `/${RUN}/exceptions`) return route.fulfill({ status: 200, contentType: "text/csv", headers: { "Content-Disposition": `attachment; filename="${RUN}-exceptions.csv"` }, body: "row,grower_no,reason\n3,KTDA000003,failed\n" });
     return json(route, { message: "Not stubbed" }, 404);
   });
@@ -92,7 +97,18 @@ async function stub(page: Page, opts: {
 }
 
 const csv = (name: string, text: string) => ({ name, mimeType: "text/csv", buffer: Buffer.from(text) });
+/** The usual reconciliation shape, with a PAYOUT run's counts. */
+const recon = (over: Obj = {}): Obj => ({
+  runId: RUN, flow: "PAYOUT", institutionId: KTDA, institutionName: "KTDA Holdings", status: "PARTIAL",
+  walletCount: 2, processedCount: 2, skippedCount: 0, failureCount: 1, creditedTotal: 4000,
+  depositDebitTotal: 4000, depositCreditTotal: 4000, doubleEntryBalanced: true,
+  expectedTotal: 5000, matchesExpected: false, matchRule: "sent == expected",
+  sentCount: 2, sentAmount: 4000, failedCount: 1, failedAmount: 1000, alreadyPaidCount: 0, alreadyPaidAmount: 0,
+  refusedCount: 0, refusedAmount: 0, ...over,
+});
+const submitted = run({ status: "SUBMITTED", submittedBy: ME, submittedAt: "2026-11-09T08:00:00Z", releasedBy: null, payableCount: 3, payableAmount: 5000, refusedCount: 0, refusedAmount: 0 });
 const partial = run({
+  releasedBy: OTHER, releasedAt: "2026-11-09T08:00:01Z", submittedBy: ME,
   status: "PARTIAL", processedCount: 2, failureCount: 1, totalAmount: 4000, completedAt: "2026-11-09T08:00:04Z",
   message: "1 of 3 payouts failed at the provider.",
 });
@@ -141,24 +157,30 @@ test("an omnichannel without payoutReady: the gate reads the farmers summary's f
   await expect(page.getByLabel("CSV file")).toBeEnabled();
 });
 
-test("a payout run: uploaded as PAYOUT, polled to PARTIAL, rows by outcome, the provider's words and the reconciliation", async ({ page }) => {
-  const sent = await stub(page, { polls: [run(), partial] });
+test("a payout run: SUBMITTED at upload with its rows to pay, then PARTIAL: rows by outcome, the provider's words and the reconciliation", async ({ page }) => {
+  const sent = await stub(page, { upload: { status: 202, body: submitted }, polls: [submitted, partial] });
   await page.goto("/bulk/payments?flow=payout");
   await page.getByLabel("CSV file").setInputFiles(csv("payouts.csv", PAYOUT_CSV));
   await expect(page.getByTestId("file-summary")).toContainText("payouts.csv: 3 rows, total KES 5,000.00");
   await page.getByRole("button", { name: "Submit", exact: true }).click();
 
-  await expect(page.getByText("Partly paid: some payouts failed")).toBeVisible();
+  // Waiting for release: what it will pay, and its rows, all still to pay.
+  await expect(page.getByTestId("release-summary")).toContainText("Releasing pays 3 rows, KES 5,000.00 from the farmers' wallets to their M-PESA");
+  const waiting = page.getByTestId("step-3").getByTestId("payout-rows");
+  await expect(waiting.getByRole("tab", { name: /Planned/ })).toHaveAttribute("aria-selected", "true");
+  await expect(waiting.getByTestId("payout-table")).toContainText("PO-2026-11-0001");
+
+  // Released elsewhere; the next read finds it PARTIAL.
+  await expect(page.getByText("Partly paid: some payouts failed")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("run-message")).toHaveText("1 of 3 payouts failed at the provider.");
   await expect(page.getByTestId("step-4").getByRole("link", { name: "payments issues list" }).first()).toHaveAttribute("href", "/token-console/transactions?tab=issues");
   await expect(page.getByTestId("run-progress")).toContainText("Sent to M-PESA");
 
   // A run with failures opens on its failed rows, each in the provider's words.
-  const rows = page.getByTestId("payout-rows");
+  const rows = page.getByTestId("step-4").getByTestId("payout-rows");
   await expect(rows.getByRole("tab", { name: /Failed/ })).toHaveAttribute("aria-selected", "true");
   const table = rows.getByTestId("payout-table");
   await expect(table).toContainText(PROVIDER_SAYS);
-  await expect(table).toContainText("KTDA000003");
   await expect(rows).toContainText("Retry these on the payments issues list");
   await expect(table.getByRole("link", { name: "KTDA000003" })).toHaveAttribute("href", "/farmers/KTDA000003");
 
@@ -169,42 +191,59 @@ test("a payout run: uploaded as PAYOUT, polled to PARTIAL, rows by outcome, the 
   await expect(rows.getByTestId("payout-rows-empty")).toContainText("No already paid rows");
 
   const recon = page.getByTestId("payout-recon");
-  await expect(recon).toContainText("Sent to M-PESA");
+  await expect(recon).toContainText("Double entry balanced");
+  await expect(recon).toContainText("Sent does not match the expected total");
+  await expect(recon.getByTestId("recon-rule")).toContainText("sent == expected");
+  await expect(recon).toContainText("Farmers paid");
   await expect(recon).toContainText("2 · KES 4,000.00");
   await expect(recon).toContainText("1 · KES 1,000.00");
+  await expect(recon).toContainText("Amount sent");
 
   const upload = sent.find((s) => s.method === "POST" && s.path === "/upload")!;
   expect(upload.body).toContain('name="flow"\r\n\r\nPAYOUT');
   expect(upload.body).toContain(`name="institutionId"\r\n\r\n${KTDA}`);
   const outcomes = sent.filter((s) => s.path === `/${RUN}/rows`).map((s) => s.query.get("outcome"));
-  expect(outcomes).toContain("FAILED");
-  expect(outcomes).toContain("SENT");
-  expect(outcomes).toContain("ALREADY_PAID");
+  expect(outcomes).toEqual(expect.arrayContaining(["PLANNED", "FAILED", "SENT", "ALREADY_PAID"]));
   const first = sent.find((s) => s.path === `/${RUN}/rows`)!;
   expect(first.query.get("page")).toBe("1");
   expect(first.query.get("size")).toBe("50");
-  // The payout reconciliation takes no expected total.
+  // Checked against the rows omnichannel said it would pay.
   const reconCall = sent.find((s) => s.path === `/${RUN}/reconciliation`)!;
-  expect(reconCall.query.has("expectedTotal")).toBe(false);
+  expect(reconCall.query.get("expectedTotal")).toBe("5000.00");
 
-  const download = page.waitForEvent("download");
+  const exceptions = page.waitForEvent("download");
   await rows.getByRole("button", { name: "Exceptions CSV" }).click();
-  expect((await download).suggestedFilename()).toBe(`${RUN}-exceptions.csv`);
+  expect((await exceptions).suggestedFilename()).toBe(`${RUN}-exceptions.csv`);
+  const all = page.waitForEvent("download");
+  await rows.getByRole("button", { name: "All rows CSV" }).click();
+  expect((await all).suggestedFilename()).toBe(`${RUN}-payouts.csv`);
 });
 
-test("a reconciliation with names the page does not know is shown as it comes", async ({ page }) => {
+test("a completed payout run: all sent, and the rows open on what was sent", async ({ page }) => {
   const done = run({ status: "COMPLETED", processedCount: 3, totalAmount: 5000, completedAt: "2026-11-09T08:00:04Z" });
-  await stub(page, { polls: [done], recent: [done], recon: { runId: RUN, flow: "PAYOUT", sent: { count: 3, amount: 5000 }, providerFees: 75 } });
+  await stub(page, {
+    polls: [done], recent: [done],
+    recon: recon({ status: "COMPLETED", walletCount: 3, processedCount: 3, failureCount: 0, creditedTotal: 5000, matchesExpected: null, expectedTotal: null, sentCount: 3, sentAmount: 5000, failedCount: 0, failedAmount: 0 }),
+  });
   await page.goto("/bulk/payments?flow=payout");
   await page.getByRole("row").filter({ hasText: "payouts.csv" }).click();
   await expect(page.getByText("Completed: all sent")).toBeVisible();
-  // No failures: the rows open on what was sent.
   await expect(page.getByTestId("payout-rows").getByRole("tab", { name: /Sent/ })).toHaveAttribute("aria-selected", "true");
-  const recon = page.getByTestId("payout-recon");
-  await expect(recon).toContainText("3 · KES 5,000.00");
-  await expect(recon).toContainText("Provider fees");
-  await expect(recon).toContainText("75");
+  const recon2 = page.getByTestId("payout-recon");
+  await expect(recon2).toContainText("3 · KES 5,000.00");
+  await expect(recon2).toContainText("Not checked");
+  await expect(recon2).not.toContainText("expected total");
   await expect(page.getByRole("columnheader", { name: "Paid out" })).toBeVisible();
+});
+
+test("a payout upload before anyone is funded shows omnichannel's 409 as it comes", async ({ page }) => {
+  const refused = "No farmer has been paid into a wallet yet, so there is nothing to pay out: run a payment first.";
+  const sent = await stub(page, { upload: { status: 409, body: envelope(409, refused) } });
+  await page.goto("/bulk/payments?flow=payout");
+  await page.getByLabel("CSV file").setInputFiles(csv("payouts.csv", PAYOUT_CSV));
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await expect(page.getByTestId("upload-error")).toContainText(refused);
+  expect(sent.some((s) => s.path.endsWith("/process"))).toBe(false);
 });
 
 test("a FAILED payout run says none was paid, and where to retry", async ({ page }) => {

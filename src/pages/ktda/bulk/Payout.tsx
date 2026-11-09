@@ -10,6 +10,7 @@ import { farmersApi } from "../../../lib/api.farmers";
 import { mockSasapay, type MockPayout } from "../../../lib/api.mockSasapay";
 import { SourceError, StatusBadge } from "../../../components/tokenconsole/ConsoleTable";
 import { saveBlob } from "./rules";
+import { Check, Row } from "./shared";
 
 /* Pay to M-PESA (bulk-loads flow PAYOUT): the same payment file and release
    step as a wallet credit run, but after release each row draws its amount
@@ -110,7 +111,10 @@ export function PayoutOutcomeNote({ run }: { run: BulkRun }) {
 
 /** The run's rows, one outcome at a time, and the exception report. */
 export function PayoutRows({ run }: { run: BulkRun }) {
-  const [outcome, setOutcome] = useState<PayoutOutcome>(run.failureCount > 0 ? "FAILED" : "SENT");
+  // Before its release a run's rows are all still to pay (or refused at upload).
+  const [outcome, setOutcome] = useState<PayoutOutcome>(
+    run.status === "SUBMITTED" || run.status === "RUNNING" ? "PLANNED" : run.failureCount > 0 ? "FAILED" : "SENT",
+  );
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(50);
   const rows = useAsyncData(() => bulkLoads.payoutRows(run.runId, outcome, page, size));
@@ -120,16 +124,26 @@ export function PayoutRows({ run }: { run: BulkRun }) {
     const { filename, blob } = await bulkLoads.exceptions(run.runId);
     saveBlob(filename, blob);
   });
+  const all = useAction(async () => {
+    const { filename, blob } = await bulkLoads.payoutRowsCsv(run.runId);
+    saveBlob(filename, blob);
+  });
   const items: PayoutRow[] = rows.data?.items ?? [];
 
   return (
     <div className="mt-4 rounded-[var(--radius-lg)] border border-border p-4" data-testid="payout-rows">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-text">Payouts</h3>
-        <Button size="sm" variant="outline" disabled={report.pending} onClick={() => void report.run()}>
-          <Download size={13} /> {report.pending ? "Downloading…" : "Exceptions CSV"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={all.pending} onClick={() => void all.run()}>
+            <Download size={13} /> {all.pending ? "Downloading…" : "All rows CSV"}
+          </Button>
+          <Button size="sm" variant="outline" disabled={report.pending} onClick={() => void report.run()}>
+            <Download size={13} /> {report.pending ? "Downloading…" : "Exceptions CSV"}
+          </Button>
+        </div>
       </div>
+      {all.error && <p role="alert" className="mb-2 text-[12.5px] text-danger">Could not download the rows: {all.error}</p>}
       {report.error && <p role="alert" className="mb-2 text-[12.5px] text-danger">Could not download the exceptions: {report.error}</p>}
       <Tabs
         className="mb-3"
@@ -165,7 +179,7 @@ export function PayoutRows({ run }: { run: BulkRun }) {
                 {items.map((r) => (
                   <tr key={`${r.row}-${r.paymentRef}`} className="border-t border-border/60">
                     <td className="tabular px-2 py-1.5">{r.row}</td>
-                    <td className="px-2 py-1.5"><Link className="font-medium text-primary-600 hover:text-primary-700" to={`/farmers/${encodeURIComponent(r.growerNo)}`}>{r.growerNo}</Link></td>
+                    <td className="px-2 py-1.5"><Link className="font-medium text-primary-600 hover:text-primary-700" to={`/farmers/${encodeURIComponent(r.grower)}`}>{r.grower}</Link></td>
                     <td className="tabular px-2 py-1.5 text-right">{money(r.amount, r.currency || run.currency)}</td>
                     <td className="tabular px-2 py-1.5 break-all">{r.paymentRef}</td>
                     <td className="px-2 py-1.5">{isOutcome(r.outcome) ? <Badge tone={OUTCOME_TONE[r.outcome]} className="whitespace-nowrap">{OUTCOME_LABEL[r.outcome]}</Badge> : <StatusBadge status={r.outcome} />}</td>
@@ -183,59 +197,33 @@ export function PayoutRows({ run }: { run: BulkRun }) {
   );
 }
 
-/* The reconciliation's own words: what was sent, failed, refused and already
-   paid. The names follow from omnichannel's build, so each known group is
-   read under a few spellings and anything else numeric is listed as it comes. */
-const GROUPS: { label: string; count: string[]; amount: string[] }[] = [
-  { label: "Sent to M-PESA", count: ["sentCount", "sent"], amount: ["sentAmount", "sentTotal"] },
-  { label: "Failed", count: ["failedCount", "failed", "failureCount"], amount: ["failedAmount", "failedTotal"] },
-  { label: "Refused", count: ["refusedCount", "refused"], amount: ["refusedAmount", "refusedTotal"] },
-  { label: "Already paid", count: ["alreadyPaidCount", "alreadyPaid"], amount: ["alreadyPaidAmount", "alreadyPaidTotal"] },
-];
-const SKIP = new Set(["runId", "flow", "institutionId", "institutionName", "status", "currency"]);
-
-const humanise = (k: string) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase()).replace(/ ([A-Z])/g, (_, c: string) => ` ${c.toLowerCase()}`);
+/* The reconciliation: the ledger's checks, then a count and an amount per
+   outcome. */
+const GROUPS = [
+  { label: "Sent to M-PESA", count: "sentCount", amount: "sentAmount" },
+  { label: "Failed", count: "failedCount", amount: "failedAmount" },
+  { label: "Refused", count: "refusedCount", amount: "refusedAmount" },
+  { label: "Already paid", count: "alreadyPaidCount", amount: "alreadyPaidAmount" },
+] as const;
 
 export function PayoutReconPanel({ recon, currency }: { recon: PayoutReconciliation; currency: string }) {
-  const used = new Set<string>();
-  const pick = (keys: string[]) => {
-    for (const k of keys) {
-      const v = recon[k];
-      if (typeof v === "number") { used.add(k); return v; }
-      // { count, amount } under the group's name.
-      if (v && typeof v === "object") {
-        const o = v as Record<string, unknown>;
-        used.add(k);
-        return o;
-      }
-    }
-    return null;
-  };
-  const rows = GROUPS.map((g) => {
-    const c = pick(g.count);
-    const a = pick(g.amount);
-    const count = typeof c === "number" ? c : c && typeof c.count === "number" ? c.count : null;
-    const amount = typeof a === "number" ? a : c && typeof c === "object" && typeof c.amount === "number" ? c.amount : null;
-    return { label: g.label, count, amount };
-  }).filter((r) => r.count != null || r.amount != null);
-  const rest = Object.entries(recon).filter(([k, v]) => !SKIP.has(k) && !used.has(k) && (typeof v === "number" || typeof v === "boolean" || typeof v === "string"));
-
+  const rows = GROUPS.map((g) => ({ label: g.label, count: recon[g.count] ?? null, amount: recon[g.amount] ?? null }))
+    .filter((r) => r.count != null || r.amount != null);
   return (
     <div className="mt-4 rounded-[var(--radius-lg)] border border-border p-4" data-testid="payout-recon">
-      <h3 className="mb-3 text-sm font-semibold text-text">Reconciliation</h3>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-text">Reconciliation</h3>
+        <div className="flex flex-wrap gap-2">
+          {typeof recon.doubleEntryBalanced === "boolean" && <Check ok={recon.doubleEntryBalanced} yes="Double entry balanced" no="Double entry not balanced" />}
+          {recon.matchesExpected != null && <Check ok={recon.matchesExpected} yes="Sent matches the expected total" no="Sent does not match the expected total" />}
+        </div>
+      </div>
+      {recon.matchRule && <p className="mb-3 text-[12.5px] text-text-soft" data-testid="recon-rule">The ledger&apos;s rule: {recon.matchRule}.</p>}
       <dl className="grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-2">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-baseline justify-between gap-3">
-            <dt className="text-text-soft">{r.label}</dt>
-            <dd className="tabular text-text">{r.count != null ? units(r.count) : "—"}{r.amount != null ? ` · ${money(r.amount, currency)}` : ""}</dd>
-          </div>
-        ))}
-        {rest.map(([k, v]) => (
-          <div key={k} className="flex items-baseline justify-between gap-3">
-            <dt className="text-text-soft">{humanise(k)}</dt>
-            <dd className="tabular text-text break-all">{typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "number" ? units(v) : String(v)}</dd>
-          </div>
-        ))}
+        {recon.walletCount != null && <Row k="Farmers paid" v={units(recon.walletCount)} />}
+        {rows.map((r) => <Row key={r.label} k={r.label} v={`${r.count != null ? units(r.count) : "—"}${r.amount != null ? ` · ${money(r.amount, currency)}` : ""}`} />)}
+        {recon.creditedTotal != null && <Row k="Amount sent" v={money(recon.creditedTotal, currency)} />}
+        <Row k="Expected (rows to pay)" v={recon.expectedTotal == null ? "Not checked" : money(recon.expectedTotal, currency)} />
       </dl>
     </div>
   );

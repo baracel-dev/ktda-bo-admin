@@ -8,7 +8,7 @@ import { dateTime, money, units } from "../../lib/tokenConsole/format";
 import { tokenConsole } from "../../lib/api.tokenConsole";
 import {
   BULK_COLUMNS, ERR, MAX_PAYMENT_KES, MAX_UPLOAD_MB, PAYOUT_NOT_AVAILABLE, bulkLoads, earlierRunIn, hasApproval, hasRefusals, readsSapFiles, summariseCsv,
-  type BulkFlow, type BulkReconciliation, type BulkRun, type FileSummary, type PayoutReconciliation,
+  type BulkFlow, type BulkReconciliation, type BulkRun, type FileSummary,
 } from "../../lib/api.bulkLoad";
 import { formatProblem, paymentFormatOf, periodFromName, type PaymentFormat } from "../../lib/sapPaymentFile";
 import { farmersApi } from "../../lib/api.farmers";
@@ -146,7 +146,6 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
   const [pollError, setPollError] = useState<string | null>(null);
   const [pollTick, setPollTick] = useState(0);
   const [recon, setRecon] = useState<BulkReconciliation | null>(null);
-  const [payoutRecon, setPayoutRecon] = useState<PayoutReconciliation | null>(null);
   const [reconError, setReconError] = useState<string | null>(null);
   const [reconTick, setReconTick] = useState(0);
   /** Why this run has no reconciliation to show (a registration run, say). */
@@ -234,16 +233,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
       setNoRecon("No line of this file was sent to the wallets, so the ledger has nothing to reconcile. The exception report says why.");
       return;
     }
-    if (payout) {
-      bulkLoads.payoutReconciliation(finishedId).then(
-        (r) => { if (!stopped) setPayoutRecon(r); },
-        (e) => { if (!stopped) setReconError(e instanceof Error ? e.message : "Could not read the reconciliation."); },
-      );
-      return () => {
-        stopped = true;
-      };
-    }
-    bulkLoads.reconciliation(finishedId, flow === "PAYMENT" ? runExpected ?? expectedCents : null).then(
+    bulkLoads.reconciliation(finishedId, paying ? runExpected ?? expectedCents : null).then(
       (r) => { if (!stopped) setRecon(r); },
       (e) => {
         if (stopped) return;
@@ -321,7 +311,6 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
 
   const onProcess = async () => {
     setRecon(null);
-    setPayoutRecon(null);
     setReconError(null);
     setPollError(null);
     setStarted(false);
@@ -365,7 +354,6 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
     setRun(null);
     setStarted(false);
     setRecon(null);
-    setPayoutRecon(null);
     setReconError(null);
     setPollError(null);
     setExpectedCents(null);
@@ -565,7 +553,8 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
         {run && hasApproval(run) && (
           <RunApproval run={run} me={me} pending={release.pending} error={release.error} onRelease={() => void onRelease()} />
         )}
-        {run && !sapNotTaken && !waiting && <Progress run={run} seenAt={seenAt} processedLabel={copy.processed} skippedHint={stepFor(flow)?.skipped ?? "Already applied"} />}
+        {run && payout && waiting && <PayoutRows run={run} />}
+        {run && !sapNotTaken && !waiting && <Progress run={run} seenAt={seenAt} processedLabel={copy.processed} skippedHint={stepFor(flow)?.skipped ?? (payout ? "Paid already" : "Already applied")} />}
         {run && !TERMINAL.has(run.status) && !sapNotTaken && <RunChecks runId={run.runId} checks={run} currency={run.currency} />}
       </Step>
 
@@ -587,8 +576,8 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
             <p className="mt-4 text-[12.5px] text-text-soft" data-testid="no-recon">{noRecon}</p>
           ) : reconError ? (
             <SourceError what="the reconciliation" error={reconError} onRetry={() => setReconTick((t) => t + 1)} className="mt-4" />
-          ) : payout ? (
-            payoutRecon ? <PayoutReconPanel recon={payoutRecon} currency={run.currency} /> : <Skeleton className="mt-4 h-32" />
+          ) : recon && payout ? (
+            <PayoutReconPanel recon={recon} currency={run.currency} />
           ) : recon ? (
             <ReconPanel recon={recon} institutionName={recon.institutionName ?? nameOf(recon.institutionId)} />
           ) : (

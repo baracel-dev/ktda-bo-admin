@@ -126,7 +126,8 @@ export const PAYOUT_OUTCOMES: PayoutOutcome[] = ["SENT", "FAILED", "REFUSED", "A
 /** One row of a PAYOUT run. */
 export type PayoutRow = {
   row: number;
-  growerNo: string;
+  /** The grower number. */
+  grower: string;
   amount: number;
   currency: string;
   paymentRef: string;
@@ -138,10 +139,16 @@ export type PayoutRow = {
   at?: string | null;
 };
 
-/** A PAYOUT run's reconciliation. The exact field names follow from
- *  omnichannel's build, so it is typed loosely and the page shows what comes:
- *  counts and amounts for sent, failed, refused and already paid. */
-export type PayoutReconciliation = Record<string, unknown>;
+/** A PAYOUT run's reconciliation: the usual shape, where walletCount is the
+ *  farmers paid, creditedTotal the amount sent, and matchesExpected compares
+ *  expectedTotal with the amount sent (matchRule "sent == expected"); plus a
+ *  count and a KES amount per outcome. refusedCount/refusedAmount are the
+ *  usual fields (LedgerRefusals). */
+export type PayoutReconciliation = BulkReconciliation & {
+  sentCount?: number | null; sentAmount?: number | null;
+  failedCount?: number | null; failedAmount?: number | null;
+  alreadyPaidCount?: number | null; alreadyPaidAmount?: number | null;
+};
 
 /** What a payout upload says on an omnichannel without PAYOUT. */
 export const PAYOUT_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not pay out to M-PESA. It needs the omnichannel release with the PAYOUT flow.";
@@ -305,8 +312,8 @@ export const bulkLoads = {
   /** One page of a PAYOUT run's rows with one outcome (X-Total-* headers). */
   payoutRows: (runId: string, outcome: PayoutOutcome, page: number, size = 50): Promise<Page<PayoutRow>> =>
     omniCall.page<PayoutRow>(`${runPath(runId)}/rows?outcome=${outcome}`, page, size),
-  /** A PAYOUT run's reconciliation, as omnichannel words it. */
-  payoutReconciliation: (runId: string) => omniCall.get<PayoutReconciliation>(`${runPath(runId)}/reconciliation`),
+  /** Every row of a PAYOUT run as CSV (Accept: text/csv on /rows, no outcome). */
+  payoutRowsCsv: (runId: string): Promise<CsvDownload> => omniCall.download(`${runPath(runId)}/rows`, `${runId}-payouts.csv`, "text/csv"),
   run: (runId: string) => omniCall.get<BulkRun>(runPath(runId)),
   /** The latest 50 runs, every institution and flow, newest first. */
   recent: () => omniCall.list<BulkRun>(BASE),

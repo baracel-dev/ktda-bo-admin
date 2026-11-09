@@ -25,10 +25,16 @@
  * without these fields is an older omnichannel, and the page keeps today's
  * one-step behaviour.
  *
+ * PAYOUT ("Pay to M-PESA") takes the same file, upload, process and release
+ * as PAYMENT; after its release each row draws the amount from the farmer's
+ * wallet and pays it to their M-PESA through SasaPay. Its rows, one outcome
+ * at a time, are JSON pages from /{runId}/rows (payoutRows); its
+ * reconciliation counts what was sent, failed, refused and already paid.
+ *
  * REGISTRATION and ACTIVATION are the farmer journey's flows
  * (journeyContract.ts): not on every environment yet, and said so plainly
  * where omnichannel refuses one. */
-import { OmniApiError, omniCall, type CsvDownload } from "./omniApi";
+import { OmniApiError, omniCall, type CsvDownload, type Page } from "./omniApi";
 import { formatKes, parseKes } from "./bulk-file";
 import { institutionApi } from "./api.institution";
 import { BULK_COLUMNS, COLUMNS, NEW_FLOWS, NOT_AVAILABLE, notBuiltYet, type BulkFlow, type OnboardingStatus } from "./journeyContract";
@@ -110,12 +116,49 @@ export type LedgerRefusals = {
 /** Which rows of a run the ledger refused, posted, or found already applied. */
 export type RowOutcome = "REFUSED" | "POSTED" | "ALREADY_APPLIED";
 
+/** A PAYOUT row's outcome: PLANNED before it is paid, SENT to M-PESA, FAILED
+ *  at the provider (retried from the payments issues list), REFUSED (no
+ *  funded wallet, or the wallet is short), ALREADY_PAID (its payment_ref was
+ *  paid before). */
+export type PayoutOutcome = "PLANNED" | "REFUSED" | "SENT" | "FAILED" | "ALREADY_PAID";
+export const PAYOUT_OUTCOMES: PayoutOutcome[] = ["SENT", "FAILED", "REFUSED", "ALREADY_PAID", "PLANNED"];
+
+/** One row of a PAYOUT run. */
+export type PayoutRow = {
+  row: number;
+  /** The grower number. */
+  grower: string;
+  amount: number;
+  currency: string;
+  paymentRef: string;
+  outcome: PayoutOutcome | string;
+  /** Why it failed or was refused: for FAILED, the provider's own words. */
+  message?: string | null;
+  /** The M-PESA payment, once one was made. */
+  paymentId?: string | null;
+  at?: string | null;
+};
+
+/** A PAYOUT run's reconciliation: the usual shape, where walletCount is the
+ *  farmers paid, creditedTotal the amount sent, and matchesExpected compares
+ *  expectedTotal with the amount sent (matchRule "sent == expected"); plus a
+ *  count and a KES amount per outcome. refusedCount/refusedAmount are the
+ *  usual fields (LedgerRefusals). */
+export type PayoutReconciliation = BulkReconciliation & {
+  sentCount?: number | null; sentAmount?: number | null;
+  failedCount?: number | null; failedAmount?: number | null;
+  alreadyPaidCount?: number | null; alreadyPaidAmount?: number | null;
+};
+
+/** What a payout upload says on an omnichannel without PAYOUT. */
+export const PAYOUT_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not pay out to M-PESA. It needs the omnichannel release with the PAYOUT flow.";
+
 /** The ledger refused lines and reported them. */
 export const hasRefusals = (r: LedgerRefusals | null | undefined) => r?.refusedCount != null;
 
 /** A payment run from an omnichannel with maker-checker. (Every run there
  *  carries submittedBy; only a payment run is released.) */
-export const hasApproval = (r: BulkRun) => r.flow === "PAYMENT" && (r.status === "SUBMITTED" || "submittedBy" in r || "releasedBy" in r);
+export const hasApproval = (r: BulkRun) => (r.flow === "PAYMENT" || r.flow === "PAYOUT") && (r.status === "SUBMITTED" || "submittedBy" in r || "releasedBy" in r);
 
 /** The run comes from an omnichannel that reads the SAP pay file. */
 export const readsSapFiles = (r: BulkRun) => "fileFormat" in r;
@@ -235,7 +278,7 @@ export const bulkLoads = {
     // under another flow.
     return NEW_FLOWS.has(flow)
       ? sent.catch((e: unknown) => {
-        if (e instanceof OmniApiError && notBuiltYet(e.status, e.message)) throw new OmniApiError(e.status, NOT_AVAILABLE);
+        if (e instanceof OmniApiError && notBuiltYet(e.status, e.message)) throw new OmniApiError(e.status, flow === "PAYOUT" ? PAYOUT_NOT_AVAILABLE : NOT_AVAILABLE);
         throw e;
       })
       : sent;
@@ -266,6 +309,11 @@ export const bulkLoads = {
       }
       throw e;
     }),
+  /** One page of a PAYOUT run's rows with one outcome (X-Total-* headers). */
+  payoutRows: (runId: string, outcome: PayoutOutcome, page: number, size = 50): Promise<Page<PayoutRow>> =>
+    omniCall.page<PayoutRow>(`${runPath(runId)}/rows?outcome=${outcome}`, page, size),
+  /** Every row of a PAYOUT run as CSV (Accept: text/csv on /rows, no outcome). */
+  payoutRowsCsv: (runId: string): Promise<CsvDownload> => omniCall.download(`${runPath(runId)}/rows`, `${runId}-payouts.csv`, "text/csv"),
   run: (runId: string) => omniCall.get<BulkRun>(runPath(runId)),
   /** The latest 50 runs, every institution and flow, newest first. */
   recent: () => omniCall.list<BulkRun>(BASE),
@@ -325,7 +373,7 @@ export function summariseCsv(flow: BulkFlow, text: string): FileSummary {
     const warnings = bad ? [`${bad.toLocaleString()} row${bad === 1 ? "" : "s"} with a date_of_birth not in YYYY-MM-DD form will fail.`] : [];
     return { rows, total: null, problem: null, warnings };
   }
-  if (flow !== "PAYMENT") return { rows, total: null, problem: null, warnings: [] };
+  if (flow !== "PAYMENT" && flow !== "PAYOUT") return { rows, total: null, problem: null, warnings: [] };
 
   const at = header.indexOf("amount_kes");
   const refAt = header.indexOf("payment_ref");
@@ -358,7 +406,7 @@ export function summariseCsv(flow: BulkFlow, text: string): FileSummary {
     : [];
   if (refused > tooLarge) {
     const other = refused - tooLarge;
-    warnings.push(`${other.toLocaleString()} row${other === 1 ? "" : "s"} without a KES amount above zero or a payment_ref of their own will not be credited.`);
+    warnings.push(`${other.toLocaleString()} row${other === 1 ? "" : "s"} without a KES amount above zero or a payment_ref of their own will not be ${flow === "PAYOUT" ? "paid" : "credited"}.`);
   }
   return { rows, total: parsed ? cents / 100 : null, problem: null, warnings, expectedCents: expected };
 }

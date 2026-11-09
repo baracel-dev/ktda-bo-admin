@@ -43,7 +43,15 @@ export function RunApproval({ run, me, pending, error, onRelease }: {
 
       {waiting && (
         <div className="mt-4 space-y-3">
-          {run.payableAmount != null && (
+          {run.flow === "PAYOUT" && run.payableAmount != null && (
+            <p className="text-[12.5px] text-text-soft" data-testid="release-summary">
+              Releasing pays{" "}
+              <span className="font-medium text-text tabular">{run.payableCount != null ? `${units(run.payableCount)} row${run.payableCount === 1 ? "" : "s"}, ` : ""}{money(run.payableAmount, run.currency)}</span> from the farmers&apos; wallets to their M-PESA
+              {(run.refusedCount ?? 0) > 0 && <>; {units(run.refusedCount!)} row{run.refusedCount === 1 ? " was" : "s were"} refused at upload and {run.refusedCount === 1 ? "is" : "are"} not paid</>}
+              {run.skippedCount > 0 && <>; {units(run.skippedCount)} {run.skippedCount === 1 ? "was" : "were"} paid already</>}.
+            </p>
+          )}
+          {run.flow !== "PAYOUT" && run.payableAmount != null && (
             <p className="text-[12.5px] text-text-soft" data-testid="release-summary">
               Releasing credits{" "}
               <span className="font-medium text-text tabular">{run.payableCount != null ? `${units(run.payableCount)} lines, ` : ""}{money(run.payableAmount, run.currency)}</span> to wallets

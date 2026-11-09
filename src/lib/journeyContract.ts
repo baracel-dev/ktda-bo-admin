@@ -18,8 +18,10 @@
                  farmer's login, so no login was made (clashReason says so).
                  Held until the phone is put right; never activated or paid. */
 
-/** The bulk-loads flow values. ONBOARDING stays as the one-step flow. */
-export type BulkFlow = "ONBOARDING" | "REGISTRATION" | "ACTIVATION" | "PAYMENT";
+/** The bulk-loads flow values. ONBOARDING stays as the one-step flow.
+ *  PAYOUT ("Pay to M-PESA") takes a payment file, and after its release draws
+ *  each row from the farmer's wallet and pays it to their M-PESA. */
+export type BulkFlow = "ONBOARDING" | "REGISTRATION" | "ACTIVATION" | "PAYMENT" | "PAYOUT";
 
 /** What a flow's CSV takes. REGISTRATION and ACTIVATION find their columns by
  *  header name, in any order, ignoring extra columns; ONBOARDING and PAYMENT
@@ -36,6 +38,7 @@ export const COLUMNS: Record<BulkFlow, FlowColumns> = {
     notes: "national_id is needed unless registration gave one (a different one replaces it); date_of_birth as YYYY-MM-DD.",
   },
   PAYMENT: { required: ["grower_no", "amount_kes", "payment_ref"], optional: [], byName: false },
+  PAYOUT: { required: ["grower_no", "amount_kes", "payment_ref"], optional: [], byName: false },
 };
 
 /** Every column a flow reads, required first: the template's header. */
@@ -45,7 +48,7 @@ export const BULK_COLUMNS: Record<BulkFlow, string[]> = Object.fromEntries(
 
 /** Flows not on every environment yet: an upload of one there says "not
  *  available on this environment yet", and never falls back to ONBOARDING. */
-export const NEW_FLOWS: ReadonlySet<BulkFlow> = new Set(["REGISTRATION", "ACTIVATION"]);
+export const NEW_FLOWS: ReadonlySet<BulkFlow> = new Set(["REGISTRATION", "ACTIVATION", "PAYOUT"]);
 
 /** GET /bulk-loads/onboarding-status?institutionId= . registrationCompleted
  *  is missing on an omnichannel without the journey. */
@@ -54,6 +57,9 @@ export type OnboardingStatus = {
   onboardingCompleted: boolean;
   /** Anyone is on the register, a farmer registered singly included. */
   registrationCompleted?: boolean;
+  /** At least one farmer is FUNDED, so there is a wallet to pay out of.
+   *  Missing on an omnichannel without PAYOUT. */
+  payoutReady?: boolean;
 };
 
 /** Which answer of onboarding-status opens a step. Omnichannel refuses the
@@ -62,13 +68,14 @@ export type OnboardingStatus = {
 export const GATE: Partial<Record<BulkFlow, keyof OnboardingStatus>> = {
   ACTIVATION: "registrationCompleted",
   PAYMENT: "onboardingCompleted",
+  PAYOUT: "payoutReady",
 };
 
 /** A REGISTRATION run posts nothing to the ledger, so it has no
  *  reconciliation (omnichannel answers 409); do not ask for one. An
  *  ACTIVATION run has one once wallets were opened (amounts 0), and answers
  *  409 when nobody was eligible. */
-export const HAS_RECONCILIATION: Record<BulkFlow, boolean> = { ONBOARDING: true, REGISTRATION: false, ACTIVATION: true, PAYMENT: true };
+export const HAS_RECONCILIATION: Record<BulkFlow, boolean> = { ONBOARDING: true, REGISTRATION: false, ACTIVATION: true, PAYMENT: true, PAYOUT: true };
 
 /** The three steps, in order, as the demo walks them. */
 export type JourneyStep = {

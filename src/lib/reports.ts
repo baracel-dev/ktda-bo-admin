@@ -6,6 +6,7 @@
    available on this environment yet". */
 
 import { omniCall, type Page } from "./omniApi";
+import type { Maybe } from "./omniMaybe";
 import { bulkLoads, type BulkRun } from "./api.bulkLoad";
 import { farmersApi, type FarmersQuery } from "./api.farmers";
 import { agentsApi } from "./api.agents";
@@ -21,8 +22,6 @@ export type ReportData = {
   rows: Row[];
   /** A totals row under the table, and the last row of the exports. */
   totals?: Row;
-  /** More rows exist than were read: the table holds the first ones. */
-  capped?: boolean;
   /** Monthly bars: labels, and one value each per series. */
   chart?: { title: string; labels: string[]; series: { label: string; values: number[] }[] };
   tiles?: { label: string; value: string }[];
@@ -31,16 +30,24 @@ export type ReportData = {
 };
 export type Loaded = { available: true; data: ReportData } | { available: false };
 
-/** Up to `maxPages` pages of `size`: enough for an export, said when capped. */
-export async function readPages<T>(read: (page: number, size: number) => Promise<Page<T>>, maxPages = 10, size = 100): Promise<{ items: T[]; capped: boolean }> {
-  const items: T[] = [];
-  for (let page = 1; page <= maxPages; page++) {
-    const p = await read(page, size);
-    items.push(...p.items);
-    if (page >= p.pages || p.items.length < size) return { items, capped: false };
-  }
-  return { items, capped: true };
-}
+/* A report that reads more than one page is a PagedReport: one or more
+   streams of pages (one list, or one per status), an optional extra read (the
+   summary, for tiles), and how to build the report from the rows read so
+   far. The page (useProgressiveReport) shows the first page of every stream
+   at once and reads the rest in the background, up to a cap. */
+
+/** One page of one list; `{ available: false }` where the read is missing. */
+export type Stream<T> = (page: number, size: number) => Promise<Maybe<Page<T>>>;
+export type PagedReport<T = unknown, X = unknown> = {
+  streams: Stream<T>[];
+  extra?: () => Promise<X>;
+  /** `items` are every stream's rows read so far, in stream order. */
+  build: (items: T[], extra: X | null) => ReportData;
+  /** What one row is, for "Loaded 300 of 10,015 farmers…". */
+  unit: string;
+};
+/** Reads are this many rows a page (omnichannel's largest). */
+export const READ_SIZE = 100;
 
 const NOT_YET = "—";
 const kes = (n: number | null | undefined) => (n === null || n === undefined ? null : Math.round(n * 100) / 100);
@@ -185,81 +192,61 @@ const farmerRow = (f: Farmer): Row => ({
   funded: nairobiDate(f.lastFundedAt),
 });
 
-export async function farmerRegister(filters: RegisterFilters): Promise<Loaded> {
-  const [summary, first] = await Promise.all([farmersApi.summary(), farmersApi.list({ ...filters, page: 1, size: 100 })]);
-  if (!first.available) return { available: false };
-  const rest = first.data.pages > 1
-    ? await readPages(async (page, size) => {
-      if (page === 1) return first.data;
-      const p = await farmersApi.list({ ...filters, page, size });
-      if (!p.available) throw new Error("The farmer list stopped answering.");
-      return p.data;
-    })
-    : { items: first.data.items, capped: false };
-  const s: FarmersSummary | null = summary.available ? summary.data : null;
-  const tiles = s ? [
-    { label: "Registered", value: String(s.registered) }, { label: "Activated", value: String(s.activated) },
-    { label: "Funded", value: String(s.funded) }, ...(s.clash !== undefined ? [{ label: "Clash", value: String(s.clash) }] : []),
-    ...(s.kyc ? [
-      { label: "KYC not started", value: String(s.kyc.none) }, { label: "KYC to decide", value: String(s.kyc.pending) },
-      { label: "KYC verified", value: String(s.kyc.verified) }, { label: "KYC rejected", value: String(s.kyc.rejected) },
-    ] : []),
-    ...(s.byChannel ? [
-      { label: "Joined in bulk", value: String(s.byChannel.bulk) }, { label: "Joined via an agent", value: String(s.byChannel.agent) },
-      { label: "Joined with staff", value: String(s.byChannel.staff) },
-    ] : []),
-  ] : undefined;
+export function farmerRegister(filters: RegisterFilters): PagedReport<Farmer, Maybe<FarmersSummary>> {
   return {
-    available: true,
-    data: {
-      columns: [
-        { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "factory", header: "Factory" }, { key: "phone", header: "Phone" },
-        { key: "state", header: "Stage" }, { key: "kyc", header: "KYC" }, { key: "registry", header: "Registry answer" }, { key: "joined", header: "Joined via" },
-        { key: "registered", header: "Registered" }, { key: "activated", header: "Activated" }, { key: "funded", header: "Last funded" },
-      ],
-      rows: rest.items.map(farmerRow),
-      capped: rest.capped,
-      tiles,
+    unit: "farmers",
+    streams: [(page, size) => farmersApi.list({ ...filters, page, size })],
+    extra: () => farmersApi.summary(),
+    build: (items, summary) => {
+      const s = summary?.available ? summary.data : null;
+      const tiles = s ? [
+        { label: "Registered", value: String(s.registered) }, { label: "Activated", value: String(s.activated) },
+        { label: "Funded", value: String(s.funded) }, ...(s.clash !== undefined ? [{ label: "Clash", value: String(s.clash) }] : []),
+        ...(s.kyc ? [
+          { label: "KYC not started", value: String(s.kyc.none) }, { label: "KYC to decide", value: String(s.kyc.pending) },
+          { label: "KYC verified", value: String(s.kyc.verified) }, { label: "KYC rejected", value: String(s.kyc.rejected) },
+        ] : []),
+        ...(s.byChannel ? [
+          { label: "Joined in bulk", value: String(s.byChannel.bulk) }, { label: "Joined via an agent", value: String(s.byChannel.agent) },
+          { label: "Joined with staff", value: String(s.byChannel.staff) },
+        ] : []),
+      ] : undefined;
+      return {
+        columns: [
+          { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "factory", header: "Factory" }, { key: "phone", header: "Phone" },
+          { key: "state", header: "Stage" }, { key: "kyc", header: "KYC" }, { key: "registry", header: "Registry answer" }, { key: "joined", header: "Joined via" },
+          { key: "registered", header: "Registered" }, { key: "activated", header: "Activated" }, { key: "funded", header: "Last funded" },
+        ],
+        rows: items.map(farmerRow),
+        tiles,
+      };
     },
   };
 }
 
 /* ---- 3. Agent commissions ---- */
 
-export async function agentCommissions(): Promise<Loaded> {
-  const first = await agentsApi.list({ page: 1, size: 100 });
-  if (!first.available) return { available: false };
-  const all = first.data.pages > 1
-    ? await readPages(async (page, size) => {
-      if (page === 1) return first.data;
-      const p = await agentsApi.list({ page, size });
-      if (!p.available) throw new Error("The agent list stopped answering.");
-      return p.data;
-    })
-    : { items: first.data.items, capped: false };
-  const agents: Agent[] = all.items;
-  return {
-    available: true,
-    data: {
-      columns: [
-        { key: "agentNo", header: "Agent no." }, { key: "name", header: "Name" }, { key: "town", header: "Town" }, { key: "status", header: "Status" },
-        { key: "balance", header: "Float balance KES", numeric: true }, { key: "limit", header: "Float limit KES", numeric: true },
-        { key: "onboarded", header: "Onboarded this month", numeric: true }, { key: "commission", header: "Commission this month KES", numeric: true },
-      ],
-      rows: agents.map((a) => ({
-        agentNo: a.agentNo, name: a.fullName, town: a.town ?? "", status: AGENT_STATUS_LABEL[a.status] ?? a.status,
-        balance: kes(a.float.balance), limit: kes(a.float.limit), onboarded: a.onboardedThisMonth, commission: kes(a.commissionThisMonth),
-      })),
-      totals: {
-        agentNo: "Total",
-        balance: kes(agents.reduce((s, a) => s + a.float.balance, 0)),
-        onboarded: agents.reduce((s, a) => s + a.onboardedThisMonth, 0),
-        commission: kes(agents.reduce((s, a) => s + a.commissionThisMonth, 0)),
-      },
-      capped: all.capped,
+export const agentCommissions: PagedReport<Agent> = {
+  unit: "agents",
+  streams: [(page, size) => agentsApi.list({ page, size })],
+  build: (agents) => ({
+    columns: [
+      { key: "agentNo", header: "Agent no." }, { key: "name", header: "Name" }, { key: "town", header: "Town" }, { key: "status", header: "Status" },
+      { key: "balance", header: "Float balance KES", numeric: true }, { key: "limit", header: "Float limit KES", numeric: true },
+      { key: "onboarded", header: "Onboarded this month", numeric: true }, { key: "commission", header: "Commission this month KES", numeric: true },
+    ],
+    rows: agents.map((a) => ({
+      agentNo: a.agentNo, name: a.fullName, town: a.town ?? "", status: AGENT_STATUS_LABEL[a.status] ?? a.status,
+      balance: kes(a.float.balance), limit: kes(a.float.limit), onboarded: a.onboardedThisMonth, commission: kes(a.commissionThisMonth),
+    })),
+    totals: {
+      agentNo: "Total",
+      balance: kes(agents.reduce((s, a) => s + a.float.balance, 0)),
+      onboarded: agents.reduce((s, a) => s + a.onboardedThisMonth, 0),
+      commission: kes(agents.reduce((s, a) => s + a.commissionThisMonth, 0)),
     },
-  };
-}
+  }),
+};
 
 /* ---- 4. Approvals (omnichannel's maker-checker queue) ---- */
 
@@ -269,14 +256,12 @@ type ApprovalRow = {
 };
 const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "FAILED"] as const;
 
-export async function approvals(): Promise<Loaded> {
-  const lists = await Promise.all(APPROVAL_STATUSES.map((status) =>
-    maybe(readPages((page, size) => omniCall.page<ApprovalRow>(`/approvals?status=${status}`, page, size)))));
-  if (lists.some((l) => !l.available)) return { available: false };
-  const items = lists.flatMap((l) => (l.available ? l.data.items : [])).sort((a, b) => b.madeAt.localeCompare(a.madeAt));
-  return {
-    available: true,
-    data: {
+export const approvals: PagedReport<ApprovalRow> = {
+  unit: "requests",
+  streams: APPROVAL_STATUSES.map((status): Stream<ApprovalRow> => (page, size) => maybe(omniCall.page<ApprovalRow>(`/approvals?status=${status}`, page, size))),
+  build: (all) => {
+    const items = [...all].sort((a, b) => b.madeAt.localeCompare(a.madeAt));
+    return {
       columns: [
         { key: "reference", header: "Reference" }, { key: "type", header: "Type" }, { key: "title", header: "Title" }, { key: "target", header: "Target" },
         { key: "maker", header: "Maker" }, { key: "madeAt", header: "Made at" }, { key: "checker", header: "Checker" }, { key: "decidedAt", header: "Decided at" },
@@ -288,73 +273,48 @@ export async function approvals(): Promise<Loaded> {
         maker: a.maker, madeAt: nairobiDateTime(a.madeAt), checker: a.checker ?? "", decidedAt: nairobiDateTime(a.decidedAt),
         status: a.status, note: a.decisionNote ?? a.error ?? "",
       })),
-      capped: lists.some((l) => l.available && l.data.capped),
-    },
-  };
-}
+    };
+  },
+};
 
 /* ---- Farmer KYC: every farmer by KYC status ---- */
 
 const KYC_REPORT_STATUSES = ["PENDING", "VERIFIED", "REJECTED", "NONE"] as const;
 
-export async function farmerKyc(): Promise<Loaded> {
-  const read = (kyc: (typeof KYC_REPORT_STATUSES)[number]) => readPages(async (page, size) => {
-    const p = await farmersApi.list({ kyc, page, size });
-    if (!p.available) throw Object.assign(new Error("not available"), { notAvailable: true });
-    return p.data;
-  });
-  let lists: Awaited<ReturnType<typeof read>>[];
-  let summary: Awaited<ReturnType<typeof farmersApi.summary>>;
-  try {
-    [summary, lists] = await Promise.all([farmersApi.summary(), Promise.all(KYC_REPORT_STATUSES.map(read))]);
-  } catch (e) {
-    if ((e as { notAvailable?: boolean }).notAvailable) return { available: false };
-    throw e;
-  }
-  const k = summary.available ? summary.data.kyc : undefined;
-  return {
-    available: true,
-    data: {
+export const farmerKyc: PagedReport<Farmer, Maybe<FarmersSummary>> = {
+  unit: "farmers",
+  streams: KYC_REPORT_STATUSES.map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, page, size })),
+  extra: () => farmersApi.summary(),
+  build: (items, summary) => {
+    const k = summary?.available ? summary.data.kyc : undefined;
+    return {
       columns: [
         { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "kyc", header: "KYC status" },
         { key: "registry", header: "Registry answer" }, { key: "started", header: "Started" }, { key: "decided", header: "Decided" },
         { key: "note", header: "Note" },
       ],
-      rows: lists.flatMap((l) => l.items).map((f) => ({
+      rows: items.map((f) => ({
         grower: f.growerNo, name: f.fullName ?? "",
         kyc: f.kyc ? KYC_LABEL[f.kyc.status] ?? f.kyc.status : KYC_LABEL.NONE,
         registry: f.kyc?.identityResult ? IDENTITY_LABEL[f.kyc.identityResult] ?? f.kyc.identityResult : "",
         started: nairobiDateTime(f.kyc?.startedAt), decided: nairobiDateTime(f.kyc?.decidedAt), note: f.kyc?.note ?? "",
       })),
-      capped: lists.some((l) => l.capped),
       tiles: k ? [
         { label: "To decide", value: String(k.pending) }, { label: "Verified", value: String(k.verified) },
         { label: "Rejected", value: String(k.rejected) }, { label: "Not started", value: String(k.none) },
       ] : undefined,
-    },
-  };
-}
+    };
+  },
+};
 
 /* ---- 5. KYC decisions ---- */
 
-export async function kycDecisions(): Promise<Loaded> {
-  const read = (kyc: "VERIFIED" | "REJECTED") => readPages(async (page, size) => {
-    const p = await farmersApi.list({ kyc, page, size });
-    if (!p.available) throw Object.assign(new Error("not available"), { notAvailable: true });
-    return p.data;
-  });
-  let verified, rejected;
-  try {
-    [verified, rejected] = await Promise.all([read("VERIFIED"), read("REJECTED")]);
-  } catch (e) {
-    if ((e as { notAvailable?: boolean }).notAvailable) return { available: false };
-    throw e;
-  }
-  const farmers = [...verified.items, ...rejected.items].filter((f) => f.kyc)
-    .sort((a, b) => (b.kyc?.decidedAt ?? "").localeCompare(a.kyc?.decidedAt ?? ""));
-  return {
-    available: true,
-    data: {
+export const kycDecisions: PagedReport<Farmer> = {
+  unit: "farmers",
+  streams: (["VERIFIED", "REJECTED"] as const).map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, page, size })),
+  build: (all) => {
+    const farmers = all.filter((f) => f.kyc).sort((a, b) => (b.kyc?.decidedAt ?? "").localeCompare(a.kyc?.decidedAt ?? ""));
+    return {
       columns: [
         { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "decision", header: "Decision" },
         { key: "registry", header: "Registry answer" }, { key: "decidedAt", header: "Decided at" }, { key: "note", header: "Note" },
@@ -364,7 +324,6 @@ export async function kycDecisions(): Promise<Loaded> {
         registry: f.kyc!.identityResult ? IDENTITY_LABEL[f.kyc!.identityResult] ?? f.kyc!.identityResult : "",
         decidedAt: nairobiDateTime(f.kyc!.decidedAt), note: f.kyc!.note ?? "",
       })),
-      capped: verified.capped || rejected.capped,
-    },
-  };
-}
+    };
+  },
+};

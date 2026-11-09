@@ -227,3 +227,16 @@ test("one KYC decision for many farmers: asking for it and reading the latest ru
     expect(r.upstream, `${method} ${path}`).toBeUndefined();
   }
 });
+
+test("the channel-api's merchants: the list, one merchant and its movements are reads; nothing else under them", async () => {
+  for (const path of ["ktda/merchants", "ktda/merchants/ch-123", "ktda/merchants/ch-123/movements?currency=KES&page=1&size=20"]) {
+    const r = await call(`/omni/api/operator/${path}`);
+    expect(r.res.status, path).toBe(200);
+    expect(r.upstream?.url, path).toBe(`https://omni.test/api/operator/${path}`);
+  }
+  for (const [method, path] of [["POST", "ktda/merchants"], ["PUT", "ktda/merchants/ch-123"], ["POST", "ktda/merchants/ch-123/movements"], ["GET", "ktda/merchants/ch-123/decision"], ["GET", "ktda/merchants/ch-123/movements/x"]]) {
+    const r = await call(`/omni/api/operator/${path}`, { method });
+    expect(r.res.status, `${method} ${path}`).toBe(404);
+    expect(r.upstream, `${method} ${path}`).toBeUndefined();
+  }
+});

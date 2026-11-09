@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FileDown, FileSpreadsheet, Printer } from "lucide-react";
-import { Button, Card, ColumnChart, FilterBar, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, StatCard } from "../ui";
+import { Button, Card, ChartLegend, ColumnChart, FilterBar, NotePanel, PageHeader, SearchInput, SelectFilter, Skeleton, StatCard } from "../ui";
 import { useAsyncData } from "../lib/useAsyncData";
 import { units } from "../lib/tokenConsole/format";
 import { SourceError } from "../components/tokenconsole/ConsoleTable";
 import {
-  agentCommissions, approvals, farmerRegister, kycDecisions, paymentRuns,
+  agentCommissions, approvals, farmerKyc, farmerRegister, kycDecisions, payoutRuns, paymentRuns, transactionsSummary,
   type Loaded, type RegisterFilters, type ReportData,
 } from "../lib/reports";
-import { download, fileStem, nairobiDateTime, toCsv, toXlsx, type Row } from "../lib/reportExport";
+import { download, fileStem, nairobiDateTime, toCsv, toXlsx, type ExportHeader, type Row } from "../lib/reportExport";
+import { institutionApi } from "../lib/api.institution";
+import { useAuth } from "../lib/auth";
 import {
   CHANNEL_LABEL, FARMER_STATES, KYC_LABEL, KYC_STATUSES, ONBOARDING_CHANNELS, STATE_LABEL,
   type FarmerState, type KycStatus, type OnboardingChannel,
@@ -21,15 +23,19 @@ import {
    the one chosen (?report=), with "N rows · generated <date>", CSV, Excel and
    PDF exports made in the browser from the rows on screen, a chart where it
    has one, and the table. Every report reads omnichannel, which answers only
-   for this institution (lib/reports.ts). Dates are Nairobi's. */
+   for this institution (lib/reports.ts). Dates are Nairobi's. Every Excel
+   export and the PDF carry a header: the institution, the report, when it was
+   generated and by whom. */
 
-type ReportKey = "payment-runs" | "farmer-register" | "agent-commissions" | "approvals" | "kyc-decisions";
+type ReportKey = "payment-runs" | "payout-runs" | "transactions" | "farmer-register" | "farmer-kyc" | "agent-commissions" | "approvals" | "kyc-decisions";
 type Entry = { key: string; title: string; description: string; live: boolean };
 
 const REPORTS: Entry[] = [
   { key: "payment-runs", title: "Payment runs", description: "Every run with lines, net paid, deductions and status.", live: true },
-  { key: "transactions", title: "Transactions summary", description: "Wallet activity for the last 30 days, grouped the way you choose.", live: false },
+  { key: "payout-runs", title: "Pay to M-PESA runs", description: "Every run paying farmers from their wallets to M-PESA: sent, failed and paid out.", live: true },
+  { key: "transactions", title: "Transactions summary", description: "Money credited into wallets and paid out to M-PESA, by month.", live: true },
   { key: "farmer-register", title: "Farmer register", description: "Every farmer with their stage, KYC and how they joined.", live: true },
+  { key: "farmer-kyc", title: "Farmer KYC", description: "Every farmer by KYC status, with the registry's answer and the dates.", live: true },
   { key: "agent-commissions", title: "Agent commissions", description: "Month-to-date commission and onboardings per agent.", live: true },
   { key: "approvals", title: "Approvals", description: "Every request for a second person's approval, and its outcome.", live: true },
   { key: "kyc-decisions", title: "KYC decisions", description: "Every farmer verified or rejected, with the registry's answer.", live: true },
@@ -38,7 +44,6 @@ const REPORTS: Entry[] = [
   { key: "build", title: "Build your own", description: "Pick the transaction fields and filters you need. (REQ 5.8.3)", live: false },
 ];
 const NOT_YET: Record<string, string> = {
-  transactions: "Not yet available: no read across every farmer's wallet movements exists yet.",
   "merchant-settlements": "Not yet available: merchants and their sales live in the merchant service, which does not report them here yet.",
   disputes: "Not yet available: disputes are not built yet.",
   build: "Not yet available: the report builder (REQ 5.8.3) comes later.",
@@ -90,12 +95,18 @@ export default function Reports() {
 
 const LOADERS: Record<Exclude<ReportKey, "farmer-register">, () => Promise<Loaded>> = {
   "payment-runs": paymentRuns,
+  "payout-runs": payoutRuns,
+  transactions: transactionsSummary,
+  "farmer-kyc": farmerKyc,
   "agent-commissions": agentCommissions,
   approvals,
   "kyc-decisions": kycDecisions,
 };
 
 function LiveReport({ entry }: { entry: Entry }) {
+  const { user } = useAuth();
+  const own = useAsyncData(() => institutionApi.own());
+  const institution = own.data?.length === 1 ? own.data[0].name ?? null : null;
   const [filters, setFilters] = useState<RegisterFilters>({});
   const [typed, setTyped] = useState("");
   const isRegister = entry.key === "farmer-register";
@@ -137,16 +148,38 @@ function LiveReport({ entry }: { entry: Entry }) {
           <div data-testid="report-not-available">
             <NotePanel tone="info" title="Not available on this environment yet">Omnichannel here does not have what this report reads.</NotePanel>
           </div>
-        ) : <ReportBody slug={entry.key} title={entry.title} data={report.data.data} generatedAt={generatedAt} />}
+        ) : <ReportBody slug={entry.key} title={entry.title} data={report.data.data} generatedAt={generatedAt} institution={institution} by={user?.name ?? null} />}
     </div>
   );
 }
 
-function ReportBody({ slug, title, data, generatedAt }: { slug: string; title: string; data: ReportData; generatedAt: string }) {
+function ReportBody({ slug, title, data, generatedAt, institution, by }: {
+  slug: string; title: string; data: ReportData; generatedAt: string; institution: string | null; by: string | null;
+}) {
   const exportRows: Row[] = data.totals ? [...data.rows, data.totals] : data.rows;
   const stem = fileStem(slug);
+  const header: ExportHeader = [
+    ["Institution", institution ?? "This institution"],
+    ["Report", title],
+    ["Generated at", `${nairobiDateTime(generatedAt)} (Nairobi)`],
+    ["Generated by", by ?? ""],
+    ...(data.capped ? [["Rows", `First ${data.rows.length} rows only`] as [string, string]] : []),
+    ...(data.note ? [["Note", data.note] as [string, string]] : []),
+  ];
+  // The PDF's title (and the file name a browser suggests for it).
+  const print = () => {
+    const before = document.title;
+    document.title = `${institution ?? "KTDA"} · ${title} · ${nairobiDateTime(generatedAt)}`;
+    window.print();
+    document.title = before;
+  };
   return (
     <>
+      <div className="mb-4 border-b border-black pb-2" data-print-only data-testid="print-header">
+        <p className="text-[11px]">{institution ?? "This institution"}</p>
+        <h1 className="text-lg font-semibold">{title}</h1>
+        <p className="text-[11px]">Generated {nairobiDateTime(generatedAt)} (Nairobi){by ? ` by ${by}` : ""}</p>
+      </div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12.5px] text-text-soft" data-testid="report-meta">
           {data.capped ? `First ${units(data.rows.length)} rows` : `${units(data.rows.length)} ${data.rows.length === 1 ? "row" : "rows"}`} · generated {nairobiDateTime(generatedAt)}
@@ -155,10 +188,10 @@ function ReportBody({ slug, title, data, generatedAt }: { slug: string; title: s
           <Button size="sm" variant="outline" onClick={() => download(`${stem}.csv`, toCsv(data.columns, exportRows), "text/csv;charset=utf-8")}>
             <FileDown size={14} /> CSV
           </Button>
-          <Button size="sm" variant="outline" onClick={() => download(`${stem}.xlsx`, toXlsx(title, data.columns, exportRows) as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}>
+          <Button size="sm" variant="outline" onClick={() => download(`${stem}.xlsx`, toXlsx(title, data.columns, exportRows, header) as BlobPart, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}>
             <FileSpreadsheet size={14} /> Excel
           </Button>
-          <Button size="sm" variant="outline" onClick={() => window.print()}>
+          <Button size="sm" variant="outline" onClick={print}>
             <Printer size={14} /> PDF
           </Button>
         </div>
@@ -173,7 +206,8 @@ function ReportBody({ slug, title, data, generatedAt }: { slug: string; title: s
       {data.chart && (
         <Card className="mb-4 p-4" data-testid="report-chart">
           <h3 className="mb-2 text-[13px] font-semibold text-text">{data.chart.title}</h3>
-          <ColumnChart labels={data.chart.labels} series={[{ label: data.chart.title, values: data.chart.values }]} />
+          {data.chart.series.length > 1 && <ChartLegend className="mb-2" items={data.chart.series.map((s, i) => ({ label: s.label, colorIndex: i }))} />}
+          <ColumnChart labels={data.chart.labels} series={data.chart.series.map((s, i) => ({ ...s, colorIndex: i }))} />
         </Card>
       )}
 
@@ -202,6 +236,7 @@ function ReportBody({ slug, title, data, generatedAt }: { slug: string; title: s
           </table>
         </div>
       )}
+      {data.note && <p className="mt-2 text-[12px] text-text-soft" data-testid="report-note">{data.note}</p>}
     </>
   );
 }

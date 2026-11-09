@@ -3,9 +3,13 @@
 
 /* Reports: "PDF" is the browser's print of the report alone (Reports.tsx
    marks it data-print-root). Everything else is hidden. */
+/* What only the printed report shows: its header (institution, report, when, by whom). */
+[data-print-only] { display: none; }
 @media print {
+  [data-print-root] [data-print-only] { display: block !important; }
   body:has([data-print-root]) * { visibility: hidden !important; }
-  [data-print-root], [data-print-root] * { visibility: visible !important; }
+  /* As specific as the rule above, and later, so the report shows. */
+  body:has([data-print-root]) [data-print-root], body:has([data-print-root]) [data-print-root] * { visibility: visible !important; }
   [data-print-root] { position: absolute; inset: 0 auto auto 0; width: 100%; padding: 0; background: #fff; color: #000; }
   [data-print-root] [data-no-print] { display: none !important; }
   [data-print-root] table { font-size: 10px; }

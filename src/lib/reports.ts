@@ -23,9 +23,11 @@ export type ReportData = {
   totals?: Row;
   /** More rows exist than were read: the table holds the first ones. */
   capped?: boolean;
-  /** Monthly bars: labels and one value each. */
-  chart?: { title: string; labels: string[]; values: number[] };
+  /** Monthly bars: labels, and one value each per series. */
+  chart?: { title: string; labels: string[]; series: { label: string; values: number[] }[] };
   tiles?: { label: string; value: string }[];
+  /** A footnote under the table, carried into the Excel header. */
+  note?: string;
 };
 export type Loaded = { available: true; data: ReportData } | { available: false };
 
@@ -81,7 +83,86 @@ export async function paymentRuns(): Promise<Loaded> {
         run: "Total", lines: runs.reduce((s, x) => s + x.totalRows, 0), net: kes(runs.reduce((s, x) => s + net(x), 0)),
         held: runs.reduce((s, x) => s + (x.heldCount ?? 0) + x.failureCount, 0),
       },
-      chart: months.length ? { title: "Net paid by month (KES)", labels: months, values: months.map((m) => kes(byMonth.get(m)) ?? 0) } : undefined,
+      chart: months.length ? { title: "Net paid by month (KES)", labels: months, series: [{ label: "Net paid (KES)", values: months.map((m) => kes(byMonth.get(m)) ?? 0) }] } : undefined,
+    },
+  };
+}
+
+/** A run that moved money: completed, or completed in part. */
+const settled = (x: BulkRun) => !!x.completedAt && (x.status === "COMPLETED" || x.status === "PARTIAL");
+
+/* ---- Pay to M-PESA runs (bulk-loads flow PAYOUT) ---- */
+
+export async function payoutRuns(): Promise<Loaded> {
+  const r = await maybe(bulkLoads.recent());
+  if (!r.available) return { available: false };
+  const runs = r.data.filter((x) => x.flow === "PAYOUT").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const byMonth = new Map<string, number>();
+  for (const x of runs) if (settled(x)) {
+    const m = nairobiMonth(x.completedAt!);
+    byMonth.set(m, (byMonth.get(m) ?? 0) + (x.totalAmount ?? 0));
+  }
+  const months = [...byMonth.keys()].sort();
+  const sum = (f: (x: BulkRun) => number) => runs.reduce((s, x) => s + f(x), 0);
+  return {
+    available: true,
+    data: {
+      columns: [
+        { key: "run", header: "Run" }, { key: "file", header: "File" }, { key: "rows", header: "Rows", numeric: true },
+        { key: "sent", header: "Sent", numeric: true }, { key: "failed", header: "Failed + refused", numeric: true },
+        { key: "already", header: "Already paid", numeric: true }, { key: "amount", header: "Amount paid out KES", numeric: true },
+        { key: "status", header: "Status" }, { key: "released", header: "Released by" }, { key: "releasedAt", header: "Released at" },
+      ],
+      rows: runs.map((x) => ({
+        run: x.runId.slice(0, 8), file: x.sourceName, rows: x.totalRows, sent: x.processedCount, failed: x.failureCount,
+        already: x.skippedCount, amount: kes(x.totalAmount), status: x.status, released: x.releasedBy ?? "", releasedAt: nairobiDateTime(x.releasedAt),
+      })),
+      totals: {
+        run: "Total", rows: sum((x) => x.totalRows), sent: sum((x) => x.processedCount), failed: sum((x) => x.failureCount),
+        already: sum((x) => x.skippedCount), amount: kes(sum((x) => x.totalAmount ?? 0)),
+      },
+      chart: months.length ? { title: "Paid out to M-PESA by month (KES)", labels: months, series: [{ label: "Paid out (KES)", values: months.map((m) => kes(byMonth.get(m)) ?? 0) }] } : undefined,
+    },
+  };
+}
+
+/* ---- Transactions summary: money in and out by month, from the runs ---- */
+
+export async function transactionsSummary(): Promise<Loaded> {
+  const r = await maybe(bulkLoads.recent());
+  if (!r.available) return { available: false };
+  const months = new Map<string, { in: number; out: number }>();
+  for (const x of r.data) {
+    if (!settled(x) || (x.flow !== "PAYMENT" && x.flow !== "PAYOUT")) continue;
+    const m = nairobiMonth(x.completedAt!);
+    const v = months.get(m) ?? { in: 0, out: 0 };
+    if (x.flow === "PAYMENT") v.in += x.totalAmount ?? 0;
+    else v.out += x.totalAmount ?? 0;
+    months.set(m, v);
+  }
+  const keys = [...months.keys()].sort();
+  const totalIn = keys.reduce((s, m) => s + months.get(m)!.in, 0);
+  const totalOut = keys.reduce((s, m) => s + months.get(m)!.out, 0);
+  return {
+    available: true,
+    data: {
+      columns: [
+        { key: "month", header: "Month" }, { key: "in", header: "Credited to wallets KES", numeric: true },
+        { key: "out", header: "Paid out to M-PESA KES", numeric: true }, { key: "net", header: "Net KES", numeric: true },
+      ],
+      rows: keys.map((m) => {
+        const v = months.get(m)!;
+        return { month: m, in: kes(v.in), out: kes(v.out), net: kes(v.in - v.out) };
+      }),
+      totals: { month: "Total", in: kes(totalIn), out: kes(totalOut), net: kes(totalIn - totalOut) },
+      chart: keys.length ? {
+        title: "Money in and out by month (KES)", labels: keys,
+        series: [
+          { label: "Credited to wallets", values: keys.map((m) => kes(months.get(m)!.in) ?? 0) },
+          { label: "Paid out to M-PESA", values: keys.map((m) => kes(months.get(m)!.out) ?? 0) },
+        ],
+      } : undefined,
+      note: "Counts batch runs (payment runs into wallets, and Pay to M-PESA runs), not individual withdrawals farmers make in the app.",
     },
   };
 }
@@ -208,6 +289,48 @@ export async function approvals(): Promise<Loaded> {
         status: a.status, note: a.decisionNote ?? a.error ?? "",
       })),
       capped: lists.some((l) => l.available && l.data.capped),
+    },
+  };
+}
+
+/* ---- Farmer KYC: every farmer by KYC status ---- */
+
+const KYC_REPORT_STATUSES = ["PENDING", "VERIFIED", "REJECTED", "NONE"] as const;
+
+export async function farmerKyc(): Promise<Loaded> {
+  const read = (kyc: (typeof KYC_REPORT_STATUSES)[number]) => readPages(async (page, size) => {
+    const p = await farmersApi.list({ kyc, page, size });
+    if (!p.available) throw Object.assign(new Error("not available"), { notAvailable: true });
+    return p.data;
+  });
+  let lists: Awaited<ReturnType<typeof read>>[];
+  let summary: Awaited<ReturnType<typeof farmersApi.summary>>;
+  try {
+    [summary, lists] = await Promise.all([farmersApi.summary(), Promise.all(KYC_REPORT_STATUSES.map(read))]);
+  } catch (e) {
+    if ((e as { notAvailable?: boolean }).notAvailable) return { available: false };
+    throw e;
+  }
+  const k = summary.available ? summary.data.kyc : undefined;
+  return {
+    available: true,
+    data: {
+      columns: [
+        { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "kyc", header: "KYC status" },
+        { key: "registry", header: "Registry answer" }, { key: "started", header: "Started" }, { key: "decided", header: "Decided" },
+        { key: "note", header: "Note" },
+      ],
+      rows: lists.flatMap((l) => l.items).map((f) => ({
+        grower: f.growerNo, name: f.fullName ?? "",
+        kyc: f.kyc ? KYC_LABEL[f.kyc.status] ?? f.kyc.status : KYC_LABEL.NONE,
+        registry: f.kyc?.identityResult ? IDENTITY_LABEL[f.kyc.identityResult] ?? f.kyc.identityResult : "",
+        started: nairobiDateTime(f.kyc?.startedAt), decided: nairobiDateTime(f.kyc?.decidedAt), note: f.kyc?.note ?? "",
+      })),
+      capped: lists.some((l) => l.capped),
+      tiles: k ? [
+        { label: "To decide", value: String(k.pending) }, { label: "Verified", value: String(k.verified) },
+        { label: "Rejected", value: String(k.rejected) }, { label: "Not started", value: String(k.none) },
+      ] : undefined,
     },
   };
 }

@@ -20,6 +20,7 @@ import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
 import { Rescreening } from "../../components/tokenconsole/Rescreening";
 import { FarmerKyc } from "../ktda/FarmerKyc";
 import { KycSweep } from "../ktda/KycSweep";
+import { KycBulkDecision } from "../ktda/KycBulkDecision";
 
 /* The KYC desk: this institution's farmers by where their KYC stands (not
    started, to decide, verified, rejected), so staff always see where
@@ -131,6 +132,7 @@ export default function TokenConsoleKyc() {
             }))}
           />
           {tab === "NONE" && <KycSweep onFinished={refresh} />}
+          {(tab === "PENDING" || tab === "NONE") && <KycBulkDecision onFinished={refresh} />}
           <FilterBar>
             <SearchInput value={typed} onChange={setTyped} placeholder="Grower number, name or phone" className="w-72" />
           </FilterBar>

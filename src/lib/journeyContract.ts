@@ -274,6 +274,45 @@ export type KycSweep = {
   message: string | null;
 };
 export const KYC_SWEEP_PATH = "/farmers/kyc/sweep";
+
+/** One KYC decision for many farmers at once (the ledger pays out only to
+ *  verified farmers). POST /farmers/kyc/decisions/bulk { decision, scope,
+ *  growerNos?, note, reason? }: VERIFIED for REGISTRY_MATCH (the pending
+ *  farmers the registry matched) runs at once (201, the run); anything else
+ *  is staged as one approval request, FARMER_KYC_BULK_DECISION (202
+ *  { approval }). 409 APPROVAL_PENDING while such a request waits, 409
+ *  KYC_BULK_RUNNING while a run runs. GET answers the latest run, 404 when
+ *  none has run. */
+export type KycBulkScope = "ALL_PENDING" | "REGISTRY_MATCH" | "GROWERS";
+export type KycBulkDecisionBody = {
+  decision: "VERIFIED" | "REJECTED";
+  scope: KycBulkScope;
+  growerNos?: string[];
+  note: string;
+  reason?: string;
+};
+export type KycBulkRun = {
+  id: string;
+  status: KycSweepStatus;
+  decision: "VERIFIED" | "REJECTED";
+  scope: KycBulkScope;
+  total: number;
+  decided: number;
+  skipped: number;
+  failed: number;
+  requestedBy: string | null;
+  approvedBy: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  message: string | null;
+};
+export const KYC_BULK_PATH = "/farmers/kyc/decisions/bulk";
+export const KYC_BULK_RUNNING = "KYC_BULK_RUNNING";
+export const KYC_BULK_SCOPE_LABEL: Record<KycBulkScope, string> = {
+  ALL_PENDING: "Every farmer waiting for a decision",
+  REGISTRY_MATCH: "Only those the registry matched",
+  GROWERS: "The grower numbers listed",
+};
 export const KYC_SWEEP_RUNNING = "KYC_SWEEP_RUNNING";
 export const SWEEP_LABEL: Record<KycSweepStatus, string> = { RUNNING: "Running", COMPLETED: "Finished", FAILED: "Failed", INTERRUPTED: "Interrupted" };
 export const SWEEP_TONE: Record<KycSweepStatus, "info" | "success" | "danger" | "warning"> = { RUNNING: "info", COMPLETED: "success", FAILED: "danger", INTERRUPTED: "warning" };

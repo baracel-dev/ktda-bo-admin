@@ -179,3 +179,19 @@ test("the menu's Approvals badge is the queue's pending count", async ({ page })
   await page.goto("/farmers");
   await expect(page.locator("aside").first().getByRole("link", { name: /^Approvals/ })).toContainText("2");
 });
+
+test("a bulk KYC decision: its own kind in the filter, and its target is the KYC desk's waiting list", async ({ page }) => {
+  const bulk = approval("AP-10020", {
+    type: "FARMER_KYC_BULK_DECISION", title: "Verify KYC for every farmer waiting (10,014)",
+    target: { kind: "FARMER", reference: "ALL_PENDING", name: null }, changes: [], reason: "Payouts this evening.",
+  });
+  const sent = await stub(page, { lists: { PENDING: [bulk] }, one: bulk });
+  await page.goto("/approvals");
+  await expect(page.getByTestId("approvals-table").locator("tbody tr").first()).toContainText("Bulk KYC decision");
+  await page.getByRole("button", { name: "Every kind" }).click();
+  await page.getByRole("option", { name: "Bulk KYC decision" }).click();
+  await expect.poll(() => sent.some((s) => s.path === "/approvals" && s.query.get("type") === "FARMER_KYC_BULK_DECISION")).toBe(true);
+  await page.getByTestId("approvals-table").getByText("AP-10020").click();
+  await expect(page.getByTestId("approval-drawer")).toContainText("Bulk KYC decision");
+  await expect(page.getByTestId("approval-target")).toHaveAttribute("href", "/token-console/kyc?kyc=PENDING");
+});

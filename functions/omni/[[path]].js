@@ -41,7 +41,8 @@ const REF = "[A-Za-z0-9._~%-]+";
 // list, its summary, one request, and approve, reject, cancel), assisted
 // onboarding and a
 // farmer's photos (upload and list), the KYC sweep over the
-// backlog (start it, and read the latest), merchants and agents (the lists,
+// backlog (start it, and read the latest), one KYC decision for many farmers
+// (ask for it, and read the latest run), merchants and agents (the lists,
 // their summaries, one of each, an agent's activities, and the staff actions
 // on them: register, documents, BRS check, KYB decision; suspend, reinstate,
 // float top-up, record an activity), and the single-farmer
@@ -52,10 +53,10 @@ const REF = "[A-Za-z0-9._~%-]+";
 // Nothing under fx, market or content: those are investing features KTDA does
 // not offer, and omnichannel refuses them for an institution without them.
 const ALLOWED = {
-  POST: new RegExp(`^/omni/api/operator/(link-codes|notifications|investors/${UUID}/kyc-status|onboarding/documents/${UUID}/review|onboarding/applications/rescreen|customers/${UUID}/(suspend|reinstate|close)|customers/interventions/${UUID}/(approve|reject)|payments/${UUID}/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)|reporting/alerts/${UUID}/(assign|close)|reporting/runs/(snapshot|surveillance)|bulk-loads/upload|bulk-loads/${UUID}/(process|release)|farmers|farmers/kyc/sweep|farmers/${GROWER}/kyc/(start|decision)|farmers/${GROWER}/(assisted-onboarding|documents)|approvals/${REF}/(approve|reject|cancel)|merchants|merchants/${REF}/(documents|brs-check|decision)|agents|agents/${REF}/(suspend|reinstate|float/top-up|activities)|mock-sasapay/reset)$`),
+  POST: new RegExp(`^/omni/api/operator/(link-codes|notifications|investors/${UUID}/kyc-status|onboarding/documents/${UUID}/review|onboarding/applications/rescreen|customers/${UUID}/(suspend|reinstate|close)|customers/interventions/${UUID}/(approve|reject)|payments/${UUID}/(retry|resolve|match|unmatched|confirm-sent|confirm-not-sent)|reporting/alerts/${UUID}/(assign|close)|reporting/runs/(snapshot|surveillance)|bulk-loads/upload|bulk-loads/${UUID}/(process|release)|farmers|farmers/kyc/sweep|farmers/kyc/decisions/bulk|farmers/${GROWER}/kyc/(start|decision)|farmers/${GROWER}/(assisted-onboarding|documents)|approvals/${REF}/(approve|reject|cancel)|merchants|merchants/${REF}/(documents|brs-check|decision)|agents|agents/${REF}/(suspend|reinstate|float/top-up|activities)|mock-sasapay/reset)$`),
   // Updating a merchant's details.
   PUT: new RegExp(`^/omni/api/operator/merchants/${REF}$`),
-  GET: new RegExp(`^/omni/api/operator/(onboarding/(applications|applications/screening-hits|documents|documents/${UUID}/content)|support/tickets|customers|customers/interventions|customers/${UUID}(/(timeline|messages|activity|interventions))?|transactions|transactions/summary|payments/issues|reporting/reports/(transactions|holdings|token-supply|suspicious-activity)\\.csv|reporting/alerts|reporting/alerts/${UUID}|reporting/runs|bulk-loads|bulk-loads/onboarding-status|bulk-loads/${UUID}(/reconciliation|/exceptions|/rows)?|institutions|institution/settings|farmers|farmers/summary|farmers/${GROWER}(/wallet(/movements)?|/documents)?|farmers/by-customer/${UUID}|farmers/kyc/sweep|approvals|approvals/summary|approvals/${REF}|merchants|merchants/summary|merchants/${REF}|agents|agents/summary|agents/${REF}(/activities)?|mock-sasapay)$`),
+  GET: new RegExp(`^/omni/api/operator/(onboarding/(applications|applications/screening-hits|documents|documents/${UUID}/content)|support/tickets|customers|customers/interventions|customers/${UUID}(/(timeline|messages|activity|interventions))?|transactions|transactions/summary|payments/issues|reporting/reports/(transactions|holdings|token-supply|suspicious-activity)\\.csv|reporting/alerts|reporting/alerts/${UUID}|reporting/runs|bulk-loads|bulk-loads/onboarding-status|bulk-loads/${UUID}(/reconciliation|/exceptions|/rows)?|institutions|institution/settings|farmers|farmers/summary|farmers/${GROWER}(/wallet(/movements)?|/documents)?|farmers/by-customer/${UUID}|farmers/kyc/sweep|farmers/kyc/decisions/bulk|approvals|approvals/summary|approvals/${REF}|merchants|merchants/summary|merchants/${REF}|agents|agents/summary|agents/${REF}(/activities)?|mock-sasapay)$`),
 };
 const FORWARDED = ["accept", "content-type", "authorization"];
 // Lists are paged: the totals travel in these headers, the body stays an array.

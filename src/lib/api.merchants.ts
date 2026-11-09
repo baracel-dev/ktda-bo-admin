@@ -10,8 +10,9 @@
  *
  * Where this environment's omnichannel does not have the passthrough, a list or summary answers
  * `{ available: false }`. */
-import { omniCall, type Page } from "./omniApi";
-import { maybe, orUnavailable, type Maybe } from "./omniMaybe";
+import { OmniApiError, omniCall, type Page } from "./omniApi";
+import { maybe, missingEndpoint, orUnavailable, type Maybe } from "./omniMaybe";
+import type { WalletMovement } from "./journeyContract";
 import { controlledPost, controlledPut } from "./api.approvals";
 import type { Staged } from "./approvalsContract";
 import {
@@ -27,7 +28,7 @@ export { maybe, missingEndpoint, orUnavailable } from "./omniMaybe";
 // --- the real channel-api merchants, mapped to the contract --------------------------------------------
 
 /** The channel-api's merchant, as omnichannel's /ktda/merchants passthrough returns it. */
-type ChannelMerchant = {
+export type ChannelMerchant = {
   id: string;
   name: string;
   brsNo: string;
@@ -43,12 +44,25 @@ type ChannelMerchant = {
 };
 
 const CHANNEL_MERCHANTS_PATH = "/ktda/merchants";
+const channelMerchantPath = (id: string) => `${CHANNEL_MERCHANTS_PATH}/${encodeURIComponent(id)}`;
+
+/** The merchant's wallet on the accounting core: open false and no balances
+ *  when the core does not know the wallet. */
+export type MerchantWallet = { open: boolean; balances: { currency: string; available: number; updatedAt: string | null }[] };
+/** GET /ktda/merchants/{id}: the merchant as the list gives it, with its wallet. */
+export type MerchantDetail = ChannelMerchant & { wallet?: MerchantWallet | null };
+/** One merchant's page: found (with `walletRead` false where this
+ *  omnichannel has no detail read yet, so only the list's fields are known),
+ *  or not one of this institution's. */
+export type MerchantProfile = { found: true; merchant: MerchantDetail; walletRead: boolean } | { found: false };
+
+export const MERCHANT_DETAIL_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here does not read a merchant's wallet yet.";
 
 const KYB_MAP: Record<string, KybStatus> = {
   approved: "APPROVED", in_review: "IN_REVIEW", pending: "IN_REVIEW",
   needs_documents: "NEEDS_DOCUMENTS", info_requested: "NEEDS_DOCUMENTS", rejected: "REJECTED",
 };
-const kybOf = (k: string): KybStatus => KYB_MAP[(k ?? "").toLowerCase()] ?? "IN_REVIEW";
+export const kybOf = (k: string): KybStatus => KYB_MAP[(k ?? "").toLowerCase()] ?? "IN_REVIEW";
 
 const typeOf = (category: string, businessType: string): MerchantType => {
   const s = `${category} ${businessType}`.toLowerCase();
@@ -63,6 +77,7 @@ function toMerchant(m: ChannelMerchant): Merchant {
   const till = m.tills[0];
   const brsStatus: BrsStatus = approved ? "VERIFIED" : "UNCHECKED";
   return {
+    id: m.id,
     reference: m.brsNo,
     name: m.name,
     type: typeOf(m.category, m.businessType),
@@ -123,6 +138,38 @@ export const merchantsApi = {
         byStatus,
       };
     })()),
+
+  /** One merchant's page by its channel-api id (or, from an older link, its
+   *  BRS number). The detail read answers 404 both for a merchant that is not
+   *  this institution's and on an omnichannel without the read, so a 404 is
+   *  settled from the list: listed means the read is missing (the page shows
+   *  the list's fields), not listed means no such merchant. */
+  detail: async (key: string): Promise<MerchantProfile> => {
+    const read = async (id: string): Promise<MerchantProfile | null> => {
+      try {
+        return { found: true, merchant: await omniCall.get<MerchantDetail>(channelMerchantPath(id)), walletRead: true };
+      } catch (e) {
+        if (missingEndpoint(e)) return null;
+        throw e;
+      }
+    };
+    const direct = await read(key);
+    if (direct) return direct;
+    const all = await maybe(omniCall.list<ChannelMerchant>(CHANNEL_MERCHANTS_PATH));
+    const listed = all.available ? all.data.find((m) => m.id === key) ?? all.data.find((m) => m.brsNo === key) : undefined;
+    if (!listed) return { found: false };
+    if (listed.id !== key) {
+      const byId = await read(listed.id);
+      if (byId) return byId;
+    }
+    return { found: true, merchant: listed, walletRead: false };
+  },
+  /** One page of the merchant's wallet movements in `currency`, newest first. */
+  movements: (id: string, currency: string, page: number, size = 20): Promise<Page<WalletMovement>> =>
+    omniCall.page<WalletMovement>(`${channelMerchantPath(id)}/movements?currency=${encodeURIComponent(currency)}`, page, size).catch((e: unknown) => {
+      if (missingEndpoint(e)) throw new OmniApiError((e as OmniApiError).status, MERCHANT_DETAIL_NOT_AVAILABLE);
+      throw e;
+    }),
 
   /** One merchant by reference (its BRS number), or null when it is not one of this institution's. */
   one: async (reference: string): Promise<Merchant | null> =>

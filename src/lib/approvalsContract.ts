@@ -80,7 +80,7 @@ export function targetLink(t: Approval["target"], type?: ApprovalType): string {
   // A bulk KYC decision is about many farmers: the KYC desk's waiting list.
   if (type === "FARMER_KYC_BULK_DECISION") return "/token-console/kyc?kyc=PENDING";
   if (t.kind === "AGENT") return `/agents?focus=${encodeURIComponent(t.reference)}`;
-  if (t.kind === "MERCHANT") return `/merchants?focus=${encodeURIComponent(t.reference)}`;
+  if (t.kind === "MERCHANT") return `/merchants/${encodeURIComponent(t.reference)}`;
   return `/farmers/${encodeURIComponent(t.reference)}`;
 }
 

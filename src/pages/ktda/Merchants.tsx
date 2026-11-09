@@ -1,30 +1,27 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Store } from "lucide-react";
-import { Badge, Button, Card, Checkbox, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, Select, Skeleton, StatCard, Tabs, Textarea, useToast } from "../../ui";
+import { Badge, Button, Checkbox, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, Select, Skeleton, StatCard, Tabs, Textarea } from "../../ui";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { useAction } from "../../lib/tokenConsole/useAction";
-import { calendarDate, dateTime, money, units } from "../../lib/tokenConsole/format";
-import { canDecideKyc } from "../../lib/tokenConsole/kyc";
-import { useAuth } from "../../lib/auth";
+import { money, units } from "../../lib/tokenConsole/format";
 import { MERCHANTS_NOT_AVAILABLE, merchantsApi } from "../../lib/api.merchants";
 import {
-  BRS_LABEL, BRS_TONE, DOCUMENT_LABEL, KYB_COUNT_KEY, KYB_LABEL, KYB_STATUSES, KYB_TONE, MERCHANT_TYPE_LABEL, MERCHANT_TYPES, VOUCHER_CATEGORIES, ratePercent,
-  type KybStatus, type Merchant, type MerchantDecision, type MerchantType, type RegisterMerchant,
+  KYB_COUNT_KEY, KYB_LABEL, KYB_STATUSES, KYB_TONE, MERCHANT_TYPE_LABEL, MERCHANT_TYPES, VOUCHER_CATEGORIES,
+  type KybStatus, type Merchant, type MerchantType, type RegisterMerchant,
 } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
-import { DetailItem } from "../../components/tokenconsole/DetailItem";
-import { ErrorWithApproval, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { ErrorWithApproval, SentForApproval } from "../../components/ApprovalNotice";
 import { withReason } from "../../lib/api.approvals";
 import { REASON_MAX, type Approval, type Staged } from "../../lib/approvalsContract";
 
 /* Merchants (prototype 3.8): agro-dealers and shops where farmers spend, each
    checked against the Business Registration Service before they can take
    payments. From omnichannel (merchantsAgentsContract.ts), this institution's
-   only. Tiles from the summary, tabs by KYB status, search, and a drawer
-   linkable as ?focus=<reference> with the BRS card, settlement and documents.
-   KYB decisions, document marking and BRS re-checks are for the roles that
-   may decide KYC. Spend at merchants is not measured yet: sales and
+   only. Tiles from the summary, tabs by KYB status, search; a row opens the
+   merchant's own page (/merchants/:id, MerchantDetail.tsx) with their wallet
+   and transaction history. KYB decisions belong to the channel-api, so none
+   are taken here. Spend at merchants is not measured yet: sales and
    transactions show as such. */
 
 const SIZE = 20;
@@ -45,11 +42,15 @@ export default function Merchants() {
   const tab: Tab = isTab(params.get("status")) ? (params.get("status") as Tab) : "ALL";
   const q = params.get("q") ?? "";
   const page = Math.max(1, Number(params.get("page")) || 1);
+  const navigate = useNavigate();
+  const open = (m: { id?: string | null; reference: string }) => navigate(`/merchants/${encodeURIComponent(m.id ?? m.reference)}`);
+  // An older link (?focus=<reference>) opens that merchant's page.
   const focus = params.get("focus");
+  useEffect(() => { if (focus) navigate(`/merchants/${encodeURIComponent(focus)}`, { replace: true }); }, [focus, navigate]);
   const [typed, setTyped] = useState(q);
   const [registering, setRegistering] = useState(false);
 
-  const set = (next: { status?: Tab; q?: string; page?: number; focus?: string | null }) => {
+  const set = (next: { status?: Tab; q?: string; page?: number }) => {
     // From the address as it is now, not as this render saw it: a delayed
     // search must not undo a tab chosen meanwhile. (React Router's own
     // updater hands back the render's copy, so read the location itself.)
@@ -63,13 +64,8 @@ export default function Merchants() {
         if (next.q?.trim()) p.set("q", next.q.trim());
         else p.delete("q");
       }
-      if ("focus" in next) {
-        if (next.focus) p.set("focus", next.focus);
-        else p.delete("focus");
-      } else {
-        if (next.page && next.page > 1) p.set("page", String(next.page));
-        else p.delete("page");
-      }
+      if (next.page && next.page > 1) p.set("page", String(next.page));
+      else p.delete("page");
       return p;
     }, { replace: true });
   };
@@ -142,7 +138,7 @@ export default function Merchants() {
                 </thead>
                 <tbody>
                   {data.items.map((m) => (
-                    <tr key={m.reference} className="cursor-pointer border-t border-border/60 hover:bg-surface-sunken/60" data-ref={m.reference} onClick={() => set({ focus: m.reference })}>
+                    <tr key={m.reference} className="cursor-pointer border-t border-border/60 hover:bg-surface-sunken/60" data-ref={m.reference} onClick={() => open(m)}>
                       <td className="px-3 py-2">
                         <div className="font-medium text-text">{m.name}</div>
                         <div className="text-[12px] text-text-soft">{MERCHANT_TYPE_LABEL[m.type] ?? m.type}{m.town ? ` · ${m.town}` : ""}</div>
@@ -171,221 +167,13 @@ export default function Merchants() {
         </>
       )}
 
-      {focus && <MerchantDrawer key={focus} reference={focus} onClose={() => set({ focus: null })} onChanged={refresh} />}
       {registering && (
         <MerchantFormModal
           onClose={() => setRegistering(false)}
-          onDone={(m) => { setRegistering(false); refresh(); set({ focus: m.reference }); }}
+          onDone={(m) => { setRegistering(false); refresh(); open(m); }}
         />
       )}
     </div>
-  );
-}
-
-function MerchantDrawer({ reference, onClose, onChanged }: { reference: string; onClose: () => void; onChanged: () => void }) {
-  const toast = useToast();
-  const { user } = useAuth();
-  const mayDecide = canDecideKyc(user?.tokRoles);
-  const merchant = useAsyncData(() => merchantsApi.one(reference));
-  const m = merchant.data;
-  const [deciding, setDeciding] = useState<MerchantDecision["decision"] | null>(null);
-  const [editing, setEditing] = useState(false);
-  const act = useAction(async (fn: () => Promise<Merchant>) => fn());
-  const apply = async (fn: () => Promise<Merchant>, ok: string) => {
-    const after = await act.run(fn);
-    if (!after) return;
-    merchant.setData(after);
-    onChanged();
-    toast.push(ok);
-  };
-
-  return (
-    <Modal open onClose={onClose} title={m?.name ?? reference} size="lg">
-      {merchant.error ? <NotePanel tone="danger">{merchant.error}</NotePanel> : merchant.loading && !m ? <Skeleton className="h-48" /> : !m ? (
-        <div data-testid="merchant-not-found"><NotePanel tone="info" title="No such merchant">No merchant {reference} is registered with this institution.</NotePanel></div>
-      ) : (() => {
-        const missing = m.documents.filter((d) => !d.received);
-        const ready = m.brs.status === "VERIFIED" && missing.length === 0;
-        const decided = m.kyb.status === "APPROVED" || m.kyb.status === "REJECTED";
-        return (
-          <div data-testid="merchant-drawer">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[12.5px] text-text-soft">
-                <span className="font-mono text-text">{m.reference}</span> · {MERCHANT_TYPE_LABEL[m.type] ?? m.type}
-                {m.town ? ` · ${m.town}` : ""}{m.county ? `, ${m.county}` : ""}
-              </p>
-              <div className="flex items-center gap-2 text-[12.5px] text-text-soft">
-                <Badge tone={KYB_TONE[m.kyb.status] ?? "neutral"}>{KYB_LABEL[m.kyb.status] ?? m.kyb.status}</Badge>
-                <span>Joined {calendarDate(m.joinedAt)}</span>
-                {mayDecide && m.kyb.status !== "REJECTED" && <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit details</Button>}
-              </div>
-            </div>
-
-            <Card className="mb-4 p-4" data-testid="brs-card">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-text">Business Registration Service</h3>
-                <Badge tone={BRS_TONE[m.brs.status] ?? "neutral"}>{BRS_LABEL[m.brs.status] ?? m.brs.status}</Badge>
-              </div>
-              <dl className="grid gap-3 sm:grid-cols-2">
-                <DetailItem term="Registration no."><span className="font-mono">{m.brs.registrationNo}</span></DetailItem>
-                <DetailItem term="Registered name">{m.brs.registeredName ?? "—"}</DetailItem>
-                <DetailItem term="Type">{m.brs.registeredType ?? "—"}</DetailItem>
-                <DetailItem term="Owner">{m.brs.registeredOwner ?? "—"}</DetailItem>
-              </dl>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-text-soft">
-                <span>{m.brs.checkedAt ? `Checked ${dateTime(m.brs.checkedAt)}` : "Not checked yet"}</span>
-                {mayDecide && !decided && (
-                  <Button size="sm" variant="outline" disabled={act.pending} onClick={() => void apply(() => merchantsApi.checkBrs(m.reference), "Checked against the Business Registration Service.")}>Check again</Button>
-                )}
-              </div>
-            </Card>
-
-            <dl className="mb-4 grid gap-3 sm:grid-cols-2" data-testid="merchant-details">
-              <DetailItem term="Owner">{m.ownerName ?? "—"}</DetailItem>
-              <DetailItem term="Owner phone"><span className="tabular">{m.ownerPhone ?? "—"}</span></DetailItem>
-              <DetailItem term="Till number"><span className="font-mono">{m.tillNo ?? "—"}</span></DetailItem>
-              <DetailItem term="Settles to">{[m.settlement.bank, m.settlement.accountMasked].filter(Boolean).join(" · ") || "—"}</DetailItem>
-              <DetailItem term="Commission">{m.commissionRate != null ? `${ratePercent(m.commissionRate)} per sale` : "—"}</DetailItem>
-              <DetailItem term="Input vouchers">{m.vouchers.accepts ? m.vouchers.categories.map(categoryWords).join(", ") || "Accepted" : "Not accepted"}</DetailItem>
-              <DetailItem term="Sales, last 30 days">{m.sales30d != null ? money(m.sales30d, "KES") : NOT_MEASURED}</DetailItem>
-              <DetailItem term="Transactions, last 30 days">{m.transactions30d != null ? units(m.transactions30d) : NOT_MEASURED}</DetailItem>
-            </dl>
-
-            <h3 className="mb-2 text-sm font-semibold text-text">Documents</h3>
-            <ul className="mb-4 divide-y divide-border rounded-[var(--radius-lg)] border border-border" data-testid="merchant-documents">
-              {m.documents.map((d) => (
-                <li key={d.type} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[13px]" data-doc={d.type}>
-                  <span>{DOCUMENT_LABEL[d.type] ?? d.type}</span>
-                  <span className="flex items-center gap-2">
-                    {d.received
-                      ? <Badge tone="success">Received{d.receivedAt ? ` ${calendarDate(d.receivedAt)}` : ""}</Badge>
-                      : <Badge tone="warning">Missing</Badge>}
-                    {!d.received && mayDecide && m.kyb.status !== "REJECTED" && (
-                      <Button size="sm" variant="outline" disabled={act.pending} onClick={() => void apply(() => merchantsApi.markDocument(m.reference, d.type), `${DOCUMENT_LABEL[d.type]} marked received.`)}>Mark received</Button>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            {m.kyb.note && (
-              <p className="mb-3 text-[12.5px] text-text" data-testid="kyb-note">
-                Note{m.kyb.decidedBy ? ` from ${m.kyb.decidedBy}` : ""}{m.kyb.decidedAt ? `, ${calendarDate(m.kyb.decidedAt)}` : ""}: {m.kyb.note}
-              </p>
-            )}
-            {act.error && <p role="alert" className="mb-3 text-[13px] text-danger">{act.error}</p>}
-
-            <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-              {!mayDecide ? (
-                <span className="text-[12.5px] text-text-soft">Deciding KYB needs the Admin or Compliance role.</span>
-              ) : m.kyb.status === "REJECTED" ? (
-                <span className="text-[12.5px] text-text-soft">Rejected. Nothing more to decide.</span>
-              ) : m.kyb.status === "APPROVED" ? (
-                <Button size="sm" variant="outline" onClick={() => setDeciding("REJECTED")}>Revoke approval</Button>
-              ) : (
-                <>
-                  <Button size="sm" disabled={!ready} onClick={() => setDeciding("APPROVED")}>Approve</Button>
-                  <Button size="sm" variant="outline" onClick={() => setDeciding("NEEDS_DOCUMENTS")}>Needs documents</Button>
-                  <Button size="sm" variant="outline" onClick={() => setDeciding("REJECTED")}>Reject</Button>
-                  {!ready && (
-                    <span className="text-[12.5px] text-text-soft" data-testid="not-ready">
-                      Approving needs {[m.brs.status !== "VERIFIED" && "a verified BRS check", missing.length > 0 && `${missing.length} more ${missing.length === 1 ? "document" : "documents"}`].filter(Boolean).join(" and ")}.
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-
-            {editing && (
-              <MerchantFormModal
-                merchant={m}
-                onClose={() => setEditing(false)}
-                onDone={(after) => { setEditing(false); merchant.setData(after); onChanged(); toast.push(`${after.name}: details saved.`); }}
-              />
-            )}
-            {deciding && (
-              <DecisionModal
-                name={m.name}
-                decision={deciding}
-                revoking={m.kyb.status === "APPROVED"}
-                onCancel={() => setDeciding(null)}
-                onDone={(after) => { setDeciding(null); merchant.setData(after); onChanged(); toast.push(`${after.name}: ${KYB_LABEL[after.kyb.status].toLowerCase()}.`); }}
-                decide={(body) => merchantsApi.decide(m.reference, body)}
-              />
-            )}
-          </div>
-        );
-      })()}
-    </Modal>
-  );
-}
-
-/** Approving, and revoking an approval, are sent for approval: the modal then
- *  says so and nothing is reloaded. Needs documents and a first rejection
- *  apply at once. */
-function DecisionModal({ name, decision, revoking, decide, onCancel, onDone }: {
-  name: string;
-  decision: MerchantDecision["decision"];
-  revoking: boolean;
-  decide: (body: MerchantDecision & { reason?: string }) => Promise<Staged<Merchant>>;
-  onCancel: () => void;
-  onDone: (m: Merchant) => void;
-}) {
-  const [note, setNote] = useState("");
-  const [reason, setReason] = useState("");
-  const [sent, setSent] = useState<Approval | null>(null);
-  const controlled = decision === "APPROVED" || revoking;
-  const act = useAction((body: MerchantDecision & { reason?: string }) => decide(body));
-  // Revoking an approval needs a note.
-  const needsNote = revoking;
-  const title = revoking ? "Revoke this approval?" : decision === "APPROVED" ? "Approve this merchant?" : decision === "REJECTED" ? "Reject this merchant?" : "Ask for documents?";
-  const consequence = revoking
-    ? `${name} will be rejected and can no longer take payments.`
-    : decision === "APPROVED" ? `${name} can take payments from farmer wallets.`
-    : decision === "REJECTED" ? `${name} will not be able to take payments.`
-    : `${name} stays waiting until the missing documents arrive.`;
-  const submit = async () => {
-    const r = await act.run({ decision, ...(note.trim() ? { note: note.trim() } : {}), ...(controlled ? withReason(reason) : {}) });
-    if (!r) return;
-    if (r.approval) setSent(r.approval);
-    else onDone(r.applied);
-  };
-  if (sent) {
-    return (
-      <Modal open onClose={onCancel} size="sm" title="Sent for approval" footer={<Button size="sm" onClick={onCancel}>Done</Button>}>
-        <SentForApproval approval={sent} />
-      </Modal>
-    );
-  }
-  return (
-    <Modal
-      open
-      onClose={act.pending ? () => undefined : onCancel}
-      size="sm"
-      title={title}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" disabled={act.pending} onClick={onCancel}>Cancel</Button>
-          <Button size="sm" variant={decision === "REJECTED" ? "danger" : "primary"} disabled={act.pending || (needsNote && !note.trim())} onClick={() => void submit()}>
-            {act.pending ? "Saving…" : "Confirm"}
-          </Button>
-        </>
-      }
-    >
-      <p className="mb-4 text-sm text-text-soft">{consequence}</p>
-      <Field label={needsNote ? "Note (needed)" : "Note"} hint="Kept with the decision.">
-        <Textarea rows={3} aria-label="Decision note" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} />
-      </Field>
-      {controlled && (
-        <div className="mt-3">
-          <p className="mb-2 text-[12.5px] text-text-soft">A second person approves this before it takes effect.</p>
-          <Field label="Reason (optional)" hint={REASON_HINT}>
-            <Textarea rows={2} aria-label="Reason" value={reason} maxLength={REASON_MAX} onChange={(e) => setReason(e.target.value)} />
-          </Field>
-        </div>
-      )}
-      {act.error && <ErrorWithApproval message={act.error} className="mt-3 text-[13px] text-danger" />}
-    </Modal>
   );
 }
 

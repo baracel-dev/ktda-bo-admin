@@ -38,6 +38,8 @@ export const DOCUMENT_LABEL: Record<MerchantDocumentType, string> = {
 export const VOUCHER_CATEGORIES = ["FERTILISER", "SEEDLINGS", "AGROCHEMICALS", "FARM_TOOLS", "ANIMAL_FEED", "FUEL"] as const;
 
 export type Merchant = {
+  /** The channel-api's id, where the merchant comes from there: its detail page is /merchants/{id}. */
+  id?: string | null;
   reference: string;
   name: string;
   type: MerchantType;

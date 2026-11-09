@@ -1,12 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { envelope, json, signIn, STAFF } from "./stubs";
+import { envelope, json, signIn } from "./stubs";
 
 /* Merchants (prototype 3.8). Reads come from the channel-api's real
  * merchants through omnichannel's /ktda/merchants passthrough, mapped to the
  * merchantsAgentsContract shape in api.merchants.ts (status and search are
  * applied in the page's client); writes go to omnichannel's own /merchants
- * register and answer the contract's Merchant, or 202 { approval } for a
- * controlled one. Stubbed. */
+ * register and answer the contract's Merchant. A row opens the merchant's
+ * own page (/merchants/:id) with the passthrough's detail (and wallet) and
+ * wallet movements; no KYB decision is taken there. Stubbed. */
 
 type Obj = Record<string, unknown>;
 const DOCS = ["CERTIFICATE_OF_REGISTRATION", "KRA_PIN_CERTIFICATE", "DIRECTOR_ID_COPIES", "BANK_LETTER"];
@@ -30,23 +31,50 @@ const merchant = (reference: string, over: Obj = {}): Obj => ({
   documents: DOCS.map((type) => ({ type, received: true, receivedAt: "2026-11-07T08:00:00Z", reference: null })),
   sales30d: null, transactions30d: null, joinedAt: "2026-11-01T08:00:00Z", updatedAt: null, ...over,
 });
-const approval = (over: Obj = {}): Obj => ({
-  id: "ap-1", reference: "AP-10001", type: "MERCHANT_DECISION", title: "Approve merchant M-10200",
-  target: { kind: "MERCHANT", reference: "M-10200", name: "Kericho Agrovet" }, changes: [], reason: null, payload: {}, status: "PENDING",
-  maker: "ktda-operator", madeAt: "2026-11-07T10:00:00Z", checker: null, decidedAt: null, decisionNote: null, appliedAt: null, error: null, checkerRoles: ["ADMIN"], ...over,
+/** The detail read: the list's merchant with its wallet. */
+const detail = (brsNo: string, over: Obj = {}): Obj => ({
+  ...channel(brsNo), wallet: { open: true, balances: [{ currency: "KES", available: 12500.5, updatedAt: "2026-11-09T09:00:00Z" }] }, ...over,
+});
+const movement = (n: number, over: Obj = {}): Obj => ({
+  reference: `TX-${String(n).padStart(4, "0")}`, type: n % 2 ? "CREDIT" : "DEBIT", event: null, amount: 100 * n, currency: "KES",
+  description: n % 2 ? "Sale at till 512345" : null, occurredAt: `2026-11-0${(n % 9) + 1}T10:00:00Z`, ...over,
 });
 type Answer = { status: number; body: unknown };
 
-async function stub(page: Page, opts: { list?: Obj[] | Answer; write?: (method: string, path: string, body: Obj) => Answer | undefined } = {}) {
-  const sent: { method: string; path: string; body: unknown }[] = [];
+async function stub(page: Page, opts: {
+  list?: Obj[] | Answer;
+  write?: (method: string, path: string, body: Obj) => Answer | undefined;
+  /** The detail read for an id; 404 by default (not on this environment). */
+  detail?: (id: string) => Answer | undefined;
+  /** All movements; paged here as omnichannel pages them. */
+  movements?: Obj[] | Answer;
+} = {}) {
+  const sent: { method: string; path: string; body: unknown; query?: URLSearchParams }[] = [];
   const list = Array.isArray(opts.list) ? [...opts.list] : opts.list ?? [...LIST];
   await page.route(/\/omni\/api\/operator\/(ktda\/)?merchants/, (route) => {
     const req = route.request();
-    const path = new URL(req.url()).pathname.replace(/^\/omni\/api\/operator/, "");
+    const url = new URL(req.url());
+    const path = url.pathname.replace(/^\/omni\/api\/operator/, "");
     const write = req.method() === "POST" || req.method() === "PUT";
     const body = write ? (req.postDataJSON() as Obj) : null;
-    sent.push({ method: req.method(), path, body });
+    sent.push({ method: req.method(), path, body, query: url.searchParams });
     if (path === "/ktda/merchants") return Array.isArray(list) ? json(route, list) : json(route, list.body, list.status);
+    const one = /^\/ktda\/merchants\/([^/]+)$/.exec(path);
+    if (one && !write) {
+      const a = opts.detail?.(decodeURIComponent(one[1])) ?? { status: 404, body: envelope(404, "Not Found") };
+      return json(route, a.body, a.status);
+    }
+    if (/^\/ktda\/merchants\/[^/]+\/movements$/.test(path)) {
+      const m = opts.movements ?? { status: 404, body: envelope(404, "Not Found") };
+      if (!Array.isArray(m)) return json(route, m.body, m.status);
+      const p = Number(url.searchParams.get("page")) || 1;
+      const size = Number(url.searchParams.get("size")) || 20;
+      const items = m.slice((p - 1) * size, p * size);
+      return route.fulfill({
+        status: 200, contentType: "application/json", body: JSON.stringify(items),
+        headers: { "X-Total-Count": String(m.length), "X-Page": String(p), "X-Size": String(size), "X-Total-Pages": String(Math.max(1, Math.ceil(m.length / size))) },
+      });
+    }
     if (write) {
       const a = opts.write?.(req.method(), path, body!) ?? { status: path === "/merchants" ? 201 : 200, body: merchant("M-10200") };
       return json(route, a.body, a.status);
@@ -95,107 +123,6 @@ test("a tab chosen while the search is still waiting is kept", async ({ page }) 
   await expect(page).toHaveURL(/status=APPROVED/);
 });
 
-test("a row opens the drawer at ?focus=, with the BRS card and the documents", async ({ page }) => {
-  await stub(page);
-  await page.goto("/merchants");
-  await page.getByTestId("merchants-table").getByText("Kericho Agrovet").click();
-  await expect(page).toHaveURL(/focus=M-10200/);
-  await expect(page.getByTestId("brs-card")).toContainText("M-10200");
-  await expect(page.getByTestId("brs-card")).toContainText("Not checked");
-  await expect(page.getByTestId("merchant-details")).toContainText("0.50% per sale");
-  await expect(page.getByTestId("merchant-documents").locator('[data-doc="BANK_LETTER"]')).toContainText("Missing");
-  await expect(page.getByTestId("merchant-drawer").getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
-  await expect(page.getByTestId("not-ready")).toContainText("a verified BRS check and 4 more documents");
-});
-
-test("mark a document received and check BRS again: the drawer shows omnichannel's answer", async ({ page }) => {
-  const sent = await stub(page, {
-    write: (_m, path) => {
-      if (path.endsWith("/documents")) return { status: 200, body: merchant("M-10200", { documents: DOCS.map((type) => ({ type, received: type === "BANK_LETTER", receivedAt: null, reference: null })), brs: { registrationNo: "M-10200", status: "UNCHECKED", registeredName: null, registeredType: null, registeredOwner: null, checkedAt: null } }) };
-      if (path.endsWith("/brs-check")) return { status: 200, body: merchant("M-10200") };
-      return undefined;
-    },
-  });
-  await page.goto("/merchants?focus=M-10200");
-  await page.getByTestId("merchant-documents").locator('[data-doc="BANK_LETTER"]').getByRole("button", { name: "Mark received" }).click();
-  await expect(page.getByTestId("merchant-documents").locator('[data-doc="BANK_LETTER"]')).toContainText("Received");
-  await page.getByTestId("brs-card").getByRole("button", { name: "Check again" }).click();
-  await expect(page.getByTestId("brs-card")).toContainText("Verified");
-  await expect(page.getByTestId("merchant-drawer").getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
-  const posts = sent.filter((s) => s.method === "POST");
-  expect(posts.map((s) => s.path)).toEqual(["/merchants/M-10200/documents", "/merchants/M-10200/brs-check"]);
-  expect(posts[0].body).toEqual({ type: "BANK_LETTER" });
-});
-
-test("approving is sent for approval: the request's reference, a link, and nothing reloaded", async ({ page }) => {
-  const sent = await stub(page, {
-    write: (_m, path, body) => {
-      if (path.endsWith("/brs-check")) return { status: 200, body: merchant("M-10200") };
-      if (path.endsWith("/decision")) return { status: 202, body: { approval: approval({ reason: body.reason ?? null }) } };
-      return undefined;
-    },
-  });
-  await page.goto("/merchants?focus=M-10200");
-  await page.getByTestId("brs-card").getByRole("button", { name: "Check again" }).click();
-  await page.getByTestId("merchant-drawer").getByRole("button", { name: "Approve", exact: true }).click();
-  await page.getByLabel("Decision note").fill("All four documents seen.");
-  await page.getByLabel("Reason", { exact: true }).fill("Documents checked in person.");
-  await page.getByRole("button", { name: "Confirm" }).click();
-  const notice = page.getByTestId("sent-for-approval");
-  await expect(notice).toContainText("Sent for approval AP-10001");
-  await expect(notice.getByRole("link", { name: "Approvals" })).toHaveAttribute("href", "/approvals?open=AP-10001");
-  const decision = sent.find((s) => s.path.endsWith("/decision"))!;
-  expect(decision.body).toEqual({ decision: "APPROVED", note: "All four documents seen.", reason: "Documents checked in person." });
-  await page.getByRole("button", { name: "Done" }).click();
-  // Still in review: nothing changed yet.
-  await expect(page.getByTestId("merchant-drawer")).toContainText("In review");
-});
-
-test("needs documents applies at once", async ({ page }) => {
-  await stub(page, { write: (_m, path, body) => path.endsWith("/decision") ? { status: 200, body: merchant("M-10200", { kyb: { status: body.decision, decidedAt: null, decidedBy: null, note: body.note ?? null } }) } : undefined });
-  await page.goto("/merchants?focus=M-10200");
-  await page.getByRole("button", { name: "Needs documents" }).click();
-  await expect(page.getByLabel("Reason", { exact: true })).toHaveCount(0);
-  await page.getByLabel("Decision note").fill("Bank letter missing.");
-  await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByTestId("kyb-note")).toContainText("Bank letter missing.");
-});
-
-test("a request already open (APPROVAL_PENDING) links to it", async ({ page }) => {
-  await stub(page, { write: (_m, path) => path.endsWith("/decision") ? { status: 409, body: envelope(409, "A request is already waiting: AP-10007", "APPROVAL_PENDING") } : { status: 200, body: merchant("M-10200") } });
-  await page.goto("/merchants?focus=M-10200");
-  await page.getByTestId("brs-card").getByRole("button", { name: "Check again" }).click();
-  await page.getByTestId("merchant-drawer").getByRole("button", { name: "Approve", exact: true }).click();
-  await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByTestId("approval-ref-link")).toHaveAttribute("href", "/approvals?open=AP-10007");
-});
-
-test("revoking an approval needs a note; a refusal shows omnichannel's reason", async ({ page }) => {
-  await stub(page, { write: () => ({ status: 409, body: envelope(409, "This merchant is decided", "MERCHANT_DECIDED") }) });
-  await page.goto("/merchants?focus=M-10201");
-  await page.getByRole("button", { name: "Revoke approval" }).click();
-  await expect(page.getByRole("button", { name: "Confirm" })).toBeDisabled();
-  await page.getByLabel("Decision note").fill("Licence withdrawn.");
-  await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByText("This merchant is decided")).toBeVisible();
-});
-
-test("someone who may not decide KYC sees the merchant but no decision", async ({ page }) => {
-  await page.route(/\/tok\/auth\/me$/, (route) => json(route, { email: STAFF.email, fullName: STAFF.fullName, roles: ["ACCOUNTANT"], admin: false }));
-  await stub(page);
-  await page.goto("/merchants?focus=M-10200");
-  await expect(page.getByTestId("merchant-drawer")).toContainText("Deciding KYB needs the Admin or Compliance role.");
-  await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Check again" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Edit details" })).toHaveCount(0);
-});
-
-test("a reference that is not this institution's", async ({ page }) => {
-  await stub(page);
-  await page.goto("/merchants?focus=M-99999");
-  await expect(page.getByTestId("merchant-not-found")).toContainText("No merchant M-99999");
-});
-
 test("register a merchant: the body follows the contract", async ({ page }) => {
   const sent = await stub(page, { write: () => ({ status: 201, body: merchant("M-10300", { name: "Kapkatet Agrovet" }) }) });
   await page.goto("/merchants");
@@ -215,7 +142,8 @@ test("register a merchant: the body follows the contract", async ({ page }) => {
   await page.getByText("Accepts input vouchers").click();
   await page.getByText("Fertiliser", { exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Register", exact: true }).click();
-  await expect(page).toHaveURL(/focus=M-10300/);
+  // The register's answer opens that merchant's page.
+  await expect(page).toHaveURL(/\/merchants\/M-10300$/);
   const post = sent.find((s) => s.method === "POST")!;
   expect(post.path).toBe("/merchants");
   expect(post.body).toEqual({
@@ -238,63 +166,6 @@ test("accepting vouchers needs a category; all six are offered", async ({ page }
   await expect(page.getByRole("dialog").getByRole("button", { name: "Register", exact: true })).toBeDisabled();
   await page.getByText("Farm tools", { exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("button", { name: "Register", exact: true })).toBeEnabled();
-});
-
-/** Opens Edit on M-10200 and fills what the channel-api's merchant does not carry. */
-async function openEdit(page: Page) {
-  await page.goto("/merchants?focus=M-10200");
-  await page.getByRole("button", { name: "Edit details" }).click();
-  const form = page.getByTestId("merchant-form");
-  await expect(form).toContainText("The registration number (M-10200) cannot change here.");
-  await expect(form.getByLabel("Registration no.", { exact: true })).toHaveCount(0);
-  await expect(form.getByLabel("Business name", { exact: true })).toHaveValue("Kericho Agrovet");
-  await expect(form.getByLabel("Commission % per sale (optional)", { exact: true })).toHaveValue("0.5");
-  for (const [l, v] of [["County", "Kericho"], ["Owner name", "Test Owner"], ["Owner phone", "0700000301"], ["Settlement bank", "Test Bank"]]) {
-    await form.getByLabel(l, { exact: true }).fill(v);
-  }
-  return form;
-}
-
-test("edit details: PUT without the registration number, the account only when typed", async ({ page }) => {
-  const sent = await stub(page);
-  const form = await openEdit(page);
-  await expect(form.getByLabel("Settlement account", { exact: true })).toHaveValue("");
-  await form.getByLabel("Till number", { exact: true }).fill("512350");
-  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Kericho Agrovet: details saved.")).toBeVisible();
-  const put = sent.find((s) => s.method === "PUT")!;
-  expect(put.path).toBe("/merchants/M-10200");
-  expect(put.body).toEqual({
-    name: "Kericho Agrovet", type: "AGRO_DEALER", town: "Kericho", county: "Kericho", ownerName: "Test Owner", ownerPhone: "0700000301",
-    tillNo: "512350", commissionRate: 0.005, vouchers: { accepts: false, categories: [] }, settlement: { bank: "Test Bank" },
-  });
-});
-
-test("a settlement change is sent for approval, with the reason", async ({ page }) => {
-  const sent = await stub(page, { write: (m) => m === "PUT" ? { status: 202, body: { approval: approval({ reference: "AP-10002", type: "MERCHANT_UPDATE", title: "Change settlement details of merchant M-10200" }) } } : undefined });
-  const form = await openEdit(page);
-  await form.getByLabel("Settlement account", { exact: true }).fill("9988776655");
-  await form.getByLabel("Reason", { exact: true }).fill("New bank letter received.");
-  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("sent-for-approval")).toContainText("Sent for approval AP-10002");
-  const body = sent.find((s) => s.method === "PUT")!.body as Obj;
-  expect(body.settlement).toEqual({ bank: "Test Bank", account: "9988776655" });
-  expect(body.reason).toBe("New bank letter received.");
-  await expect(page.getByText("details saved.")).toHaveCount(0);
-});
-
-test("a rejected merchant has no Edit", async ({ page }) => {
-  await stub(page, { list: [channel("M-10200", { kyb: "rejected" })] });
-  await page.goto("/merchants?focus=M-10200");
-  await expect(page.getByTestId("merchant-drawer")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Edit details" })).toHaveCount(0);
-});
-
-test("an edit omnichannel refuses shows why", async ({ page }) => {
-  await stub(page, { write: () => ({ status: 409, body: envelope(409, "This merchant is rejected", "MERCHANT_REJECTED") }) });
-  await openEdit(page);
-  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("This merchant is rejected")).toBeVisible();
 });
 
 test("a till already taken shows omnichannel's message", async ({ page }) => {
@@ -322,4 +193,89 @@ test("Merchants and Agents are in the People menu", async ({ page }) => {
   await menu.getByRole("button", { name: "People", exact: true }).click();
   await expect(menu.getByRole("link", { name: "Merchants", exact: true })).toHaveAttribute("href", "/merchants");
   await expect(menu.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("href", "/agents");
+});
+
+test("a row opens the merchant's page: header, tiles, details, tills, and the transaction history", async ({ page }) => {
+  const sent = await stub(page, {
+    detail: (id) => (id === "ch-M-10200" ? { status: 200, body: detail("M-10200") } : undefined),
+    movements: [movement(1), movement(2, { amount: 250 })],
+  });
+  await page.goto("/merchants");
+  await page.getByTestId("merchants-table").getByText("Kericho Agrovet").click();
+  await expect(page).toHaveURL(/\/merchants\/ch-M-10200$/);
+  const profile = page.getByTestId("merchant-profile");
+  await expect(profile.getByRole("heading", { name: "Kericho Agrovet", level: 1 })).toBeVisible();
+  await expect(profile).toContainText("Merchant · M-10200");
+  await expect(profile).toContainText("Sole proprietor · Agro-dealer · since");
+  await expect(profile).toContainText("KYB: In review");
+  const tiles = page.getByTestId("merchant-tiles");
+  await expect(page.getByTestId("wallet-balance")).toContainText("KES 12,500.50");
+  await expect(tiles).toContainText("Tills1");
+  await expect(tiles).toContainText("0.50%");
+  const details = page.getByTestId("merchant-details");
+  for (const t of ["M-10200", "Sole proprietor", "Agro-dealer", "w-1"]) await expect(details).toContainText(t);
+  await expect(page.getByTestId("tills")).toContainText("512345");
+  await expect(page.getByTestId("tills")).toContainText("Main till");
+  const moves = page.getByTestId("movements");
+  await expect(moves.locator("tbody tr")).toHaveCount(2);
+  await expect(moves).toContainText("Sale at till 512345");
+  await expect(moves).toContainText("+KES 100.00");
+  await expect(moves).toContainText("−KES 250.00");
+  const read = sent.find((x) => x.path.endsWith("/movements"))!;
+  expect(read.query!.get("currency")).toBe("KES");
+  expect(read.query!.get("page")).toBe("1");
+  // Read-only: no KYB decision or edit here, and no drawer.
+  for (const b of ["Approve", "Reject", "Needs documents", "Edit details"]) await expect(page.getByRole("button", { name: b })).toHaveCount(0);
+  await expect(page.getByTestId("merchant-drawer")).toHaveCount(0);
+  expect(sent.some((x) => x.method !== "GET")).toBe(false);
+});
+
+test("the transaction history pages like the farmer's", async ({ page }) => {
+  await stub(page, {
+    detail: () => ({ status: 200, body: detail("M-10200") }),
+    movements: Array.from({ length: 25 }, (_, i) => movement(i + 1)),
+  });
+  await page.goto("/merchants/ch-M-10200");
+  const rows = page.getByTestId("movements").locator("tbody tr");
+  await expect(rows).toHaveCount(20);
+  await expect(page.getByText("25 movements · page 1 of 2")).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(rows).toHaveCount(5);
+  await expect(page.getByText("25 movements · page 2 of 2")).toBeVisible();
+});
+
+test("no movements yet, and a wallet the accounting core does not know", async ({ page }) => {
+  await stub(page, { detail: () => ({ status: 200, body: detail("M-10200") }), movements: [] });
+  await page.goto("/merchants/ch-M-10200");
+  await expect(page.getByTestId("movements-empty")).toHaveText("No movements yet.");
+
+  await page.unroute(/\/omni\/api\/operator\/(ktda\/)?merchants/);
+  await stub(page, { detail: () => ({ status: 200, body: detail("M-10200", { wallet: { open: false, balances: [] } }) }) });
+  await page.reload();
+  await expect(page.getByTestId("wallet-balance")).toContainText("No wallet");
+  await expect(page.getByTestId("wallet-none")).toBeVisible();
+});
+
+test("an omnichannel without the detail read: the list's fields, and the wallet not available", async ({ page }) => {
+  const sent = await stub(page);
+  await page.goto("/merchants/ch-M-10201");
+  const profile = page.getByTestId("merchant-profile");
+  await expect(profile.getByRole("heading", { name: "Litein Shop", level: 1 })).toBeVisible();
+  await expect(profile).toContainText("KYB: Approved");
+  await expect(page.getByTestId("wallet-balance")).toContainText("Not available");
+  await expect(page.getByTestId("wallet-not-available")).toContainText("Wallet not available on this environment yet");
+  await expect(page.getByTestId("tills")).toContainText("512346");
+  // Nothing asked of a movements read that is not there.
+  expect(sent.some((x) => x.path.endsWith("/movements"))).toBe(false);
+});
+
+test("a merchant that is not this institution's, and an older ?focus= link", async ({ page }) => {
+  await stub(page, { detail: (id) => (id === "ch-M-10200" ? { status: 200, body: detail("M-10200") } : undefined) });
+  await page.goto("/merchants/ch-M-99999");
+  await expect(page.getByTestId("merchant-not-found")).toContainText("No merchant ch-M-99999");
+  // A link by BRS number (the old drawer's) opens the merchant's page.
+  await page.goto("/merchants?focus=M-10200");
+  await expect(page).toHaveURL(/\/merchants\/M-10200$/);
+  await expect(page.getByTestId("merchant-profile").getByRole("heading", { name: "Kericho Agrovet", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("wallet-balance")).toContainText("KES 12,500.50");
 });

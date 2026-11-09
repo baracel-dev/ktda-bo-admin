@@ -197,3 +197,21 @@ test("an unconfirmed payout's two confirmations pass; nothing else under a payme
   }
   expect((await call(`/omni/api/operator/payments/${id}/confirm-maybe`, { method: "POST" })).res.status).toBe(404);
 });
+
+test("the demo's mock SasaPay: its read and its reset pass, nothing else under it", async () => {
+  const read = await call("/omni/api/operator/mock-sasapay");
+  expect(read.res.status).toBe(200);
+  expect(read.upstream?.url).toBe("https://omni.test/api/operator/mock-sasapay");
+  const reset = await call("/omni/api/operator/mock-sasapay/reset", { method: "POST" });
+  expect(reset.res.status).toBe(200);
+  expect(reset.upstream?.url).toBe("https://omni.test/api/operator/mock-sasapay/reset");
+  for (const [method, path] of [["POST", "mock-sasapay"], ["GET", "mock-sasapay/reset"], ["PUT", "mock-sasapay"], ["GET", "mock-sasapay/payouts"], ["POST", "mock-sasapay/reset/x"]]) {
+    const r = await call(`/omni/api/operator/${path}`, { method });
+    expect(r.res.status, `${method} ${path}`).toBe(404);
+    expect(r.upstream, `${method} ${path}`).toBeUndefined();
+  }
+  // A payout run's rows (JSON pages) are the bulk-loads read that exists already.
+  const rows = await call("/omni/api/operator/bulk-loads/44444444-4444-4444-8444-444444444444/rows?outcome=FAILED&page=1&size=50");
+  expect(rows.res.status).toBe(200);
+  expect(rows.res.headers.get("x-total-count")).toBe("45");
+});

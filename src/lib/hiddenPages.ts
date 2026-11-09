@@ -36,6 +36,9 @@ export const REMOVED_PAGES: ReadonlySet<string> = new Set([
   "/kyc-periodic",                // periodic review
   "/kyc-dynamic",                 // dynamic review
   "/screening",                   // screening
+  // The demo general ledger is fund accounting (unit ledger, accrual runs).
+  // Accounts, Journals and Trial balance are the live books.
+  "/ledger",
 ]);
 
 const under = (set: ReadonlySet<string>, path: string) =>

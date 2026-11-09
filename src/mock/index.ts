@@ -18,3 +18,4 @@ export * from "./fixtures/tokenization";
 export * from "./fixtures/conduct";
 export * from "./fixtures/investment";
 export * from "./fixtures/institutional";
+export * from "./fixtures/ktdaPeople";

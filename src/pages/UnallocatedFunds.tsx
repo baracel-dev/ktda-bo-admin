@@ -21,7 +21,7 @@ export default function UnallocatedFunds() {
   const match = async (id: string, reference: string) => {
     const updated = await matchUnallocatedFund(id);
     setData((prev) => (prev ? prev.map((f) => (f.id === updated.id ? updated : f)) : prev));
-    toast.push(`${reference} matched to investor and credited`, "success");
+    toast.push(`${reference} matched to the farmer and credited`, "success");
   };
 
   const all = data ?? [];
@@ -33,7 +33,7 @@ export default function UnallocatedFunds() {
   });
 
   const columns: Column<UnallocatedFund>[] = [
-    { key: "reference", header: "Wire reference", render: (r) => <span className="tabular text-text">{r.reference}</span> },
+    { key: "reference", header: "Reference", render: (r) => <span className="tabular text-text">{r.reference}</span> },
     { key: "id", header: "Register ID", render: (r) => <span className="tabular text-text-faint text-xs">{r.id}</span>, hideOnMobile: true, defaultHidden: true },
     { key: "amount", header: "Amount", render: (r) => <Money amount={r.amount} currency={r.currency} /> },
     { key: "currency", header: "Currency", render: (r) => r.currency, hideOnMobile: true, defaultHidden: true },
@@ -54,9 +54,9 @@ export default function UnallocatedFunds() {
 
   return (
     <div>
-      <PageHeader title="Unallocated Funds Register" subtitle="USD wire receipts that couldn't be auto-matched to an investor land here — held, never lost or bounced." />
+      <PageHeader title="Unallocated funds" subtitle="Money received that could not be matched to a farmer: M-PESA deposits with a wrong or missing grower number, and payment-file lines for unregistered growers. Held here, never lost or bounced." />
       <Card className="p-3.5 bg-surface-sunken border-none mb-4 text-xs text-text-soft">
-        Mirrors Investcent Operations' existing pattern for unidentified receipts, extended to this fund's USD subscription rail.
+        Match a receipt to the farmer once the grower number is confirmed, or return it to the line it came from after seven days.
       </Card>
 
       {error && (

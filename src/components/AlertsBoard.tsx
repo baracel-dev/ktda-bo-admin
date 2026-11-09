@@ -4,7 +4,7 @@ import {
   PageHeader, Badge, DataTable, type Column, Button, useToast, formatDateTime, Skeleton, Card,
   FilterBar, SearchInput, SelectFilter, DateRangeFilter, inDateRange,
 } from "../ui";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { FolderOpen } from "lucide-react";
 import { useAuth, ADMIN_USERS } from "../lib/auth";
 import { useAsyncData } from "../lib/useAsyncData";
@@ -81,16 +81,14 @@ export function AlertsBoard({
   const columns: Column<AmlAlert>[] = [
     {
       key: "clientName",
-      header: "Client",
-      className: "min-w-[120px]",
-      render: (r) =>
-        r.clientId ? (
-          <Link to={`/clients/${r.clientId}`} className="text-text font-medium hover:text-primary-600" onClick={(e) => e.stopPropagation()}>
-            {r.clientName}
-          </Link>
-        ) : (
-          <span className="text-text font-medium">{r.clientName}</span>
-        ),
+      header: "Farmer, agent or merchant",
+      className: "min-w-[150px]",
+      render: (r) => (
+        <div>
+          <div className="text-text font-medium">{r.clientName}</div>
+          {r.clientId && <div className="mt-0.5 tabular text-xs text-text-faint">{r.clientId}</div>}
+        </div>
+      ),
     },
     { key: "id", header: "Alert ID", className: "whitespace-nowrap", render: (r) => <span className="tabular text-text-faint text-xs">{r.id}</span>, hideOnMobile: true, defaultHidden: true },
     // The rule is the headline; its detail is a paragraph, clamped under it with
@@ -154,7 +152,7 @@ export function AlertsBoard({
       )}
 
       <FilterBar>
-        <SearchInput value={query} onChange={setQuery} placeholder="Search client, rule, detail…" />
+        <SearchInput value={query} onChange={setQuery} placeholder="Search name, rule, detail…" />
         <SelectFilter value={severity} onChange={setSeverity} options={SEVERITY_OPTIONS} allLabel="All severities" />
         <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
         <DateRangeFilter from={range.from} to={range.to} onChange={setRange} />

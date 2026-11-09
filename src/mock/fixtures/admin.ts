@@ -10,17 +10,17 @@ import { isHiddenPage } from "../../lib/hiddenPages";
 export type AdminRole = "ceo" | "bd_officer" | "client_services" | "head_of_bd" | "compliance" | "mlro" | "compliance_analyst" | "operations" | "head_of_finance" | "investment_manager" | "investment_committee" | "system_admin";
 
 export const ROLE_LABELS: Record<AdminRole, string> = {
-  ceo: "Chief Executive Officer",
-  bd_officer: "BD Officer / RM",
-  client_services: "Client Services",
-  head_of_bd: "Head of Business Development",
-  compliance: "Institutional Funds Compliance Manager",
+  ceo: "Managing Director",
+  bd_officer: "Farmer engagement officer",
+  client_services: "Customer service",
+  head_of_bd: "Head of farmer services",
+  compliance: "Compliance manager",
   mlro: "MLRO",
-  compliance_analyst: "Compliance Analyst",
-  operations: "Operations",
+  compliance_analyst: "Compliance analyst",
+  operations: "Payments operations",
   head_of_finance: "Head of Finance",
-  investment_manager: "Investment Manager",
-  investment_committee: "Investment Committee",
+  investment_manager: "Agent network manager",
+  investment_committee: "Merchant network manager",
   system_admin: "System Admin",
 };
 
@@ -222,22 +222,21 @@ export type AmlAlert = {
 };
 
 export const AML_ALERTS: AmlAlert[] = [
-  { id: "aml_att_1", clientId: "inv_3122", clientName: "Cynthia Njeri", rule: "Blocked transaction attempts", detail: "3 blocked transaction attempt events within an hour on investor-mobile.", severity: "medium", status: "open", raisedAt: "2026-08-16T05:55:00Z" },
-  { id: "aml_1", clientId: "inv_3350", clientName: "Brian Otieno", rule: "Structuring pattern", detail: "4 deposits of KES 9,800–9,950 within 48 hours, just under the KES 10,000 reporting-review threshold.", severity: "high", status: "under_review", assignee: "Peter Otieno", caseId: "cs_1", raisedAt: "2026-08-06T11:00:00Z" },
-  { id: "aml_2", clientId: "inv_2601", clientName: "Esther Chebet", rule: "Velocity check", detail: "3 subscriptions in one day across both sub-funds, higher than the client's 90-day average.", severity: "low", status: "cleared", raisedAt: "2026-08-03T09:40:00Z" },
-  { id: "aml_3", clientId: "inv_3122", clientName: "Cynthia Njeri", rule: "Geo-mismatch", detail: "Login from a new device/location shortly before a large redemption request.", severity: "medium", status: "open", raisedAt: "2026-08-05T20:15:00Z" },
+  { id: "aml_1", clientId: "GN-163842", clientName: "Wilson Kipngeno Rotich", rule: "Cash-outs split across agents", detail: "Five cash-outs of KES 9,800 to 9,950 at three agents in Bomet inside 36 hours, just under the KES 10,000 review line, the day after a KES 48,600 payment.", severity: "high", status: "under_review", assignee: "Peter Otieno", caseId: "cs_1", raisedAt: "2026-11-07T11:00:00Z" },
+  { id: "aml_2", clientId: "GN-192774", clientName: "Mary Njeri Kariuki", rule: "Many senders into one wallet", detail: "Eleven wallet transfers in from eleven different farmers in two days, then one Pay to M-PESA of KES 61,000.", severity: "medium", status: "open", raisedAt: "2026-11-08T09:40:00Z" },
+  { id: "aml_3", clientId: "GN-150311", clientName: "Agnes Moraa Nyaboke", rule: "Payment far above deliveries", detail: "KES 212,400 credited against 1,180 kg; Nyansiongo's average is KES 18.50 a kg. Checked against the factory's payment file.", severity: "low", status: "cleared", raisedAt: "2026-11-03T09:40:00Z" },
 ];
 
 /** Fraud-desk alerts. Same shape and workflow as the AML board — raised by the
  * rules engine, triaged, then escalated into a case — but the indicators are
  * fraud rather than laundering typologies. */
 export const FRAUD_ALERTS: AmlAlert[] = [
-  { id: "fr_1", kind: "fraud", clientId: "inv_3122", clientName: "Cynthia Njeri", rule: "Payout name mismatch", detail: "Redemption payout account registered to 'C. NJERI ENTERPRISES', not the client's own name — third-party payment indicator (TM-005).", severity: "high", status: "open", raisedAt: "2026-08-17T08:20:00Z" },
-  { id: "fr_2", kind: "fraud", clientId: "inv_3350", clientName: "Brian Otieno", rule: "Device change before withdrawal", detail: "New device and SIM registered 14 minutes before a full redemption request — account-takeover pattern.", severity: "high", status: "under_review", assignee: "Kevin Baraka", raisedAt: "2026-08-16T19:05:00Z" },
-  { id: "fr_3", kind: "fraud", clientId: "inv_2601", clientName: "Esther Chebet", rule: "Shared payout destination", detail: "The M-Pesa number on this payout is already the default destination on two other client files — possible mule account.", severity: "medium", status: "open", raisedAt: "2026-08-14T13:40:00Z" },
-  { id: "fr_4", kind: "fraud", clientId: "inv_2765", clientName: "David Mwangi", rule: "Failed-OTP burst", detail: "6 failed OTP attempts in 4 minutes, then a successful login from an unrecognised device.", severity: "medium", status: "open", raisedAt: "2026-08-12T07:15:00Z" },
-  { id: "fr_5", kind: "fraud", clientId: "inv_2891", clientName: "Amina Wanjiru", rule: "Duplicate settlement callback", detail: "Daraja delivered the same STK confirmation twice for reference QGH4K2P1M9 — the investor was charged for one subscription and billed twice.", severity: "medium", status: "under_review", assignee: "Peter Otieno", caseId: "cs_2", raisedAt: "2026-08-08T08:20:00Z" },
-  { id: "fr_6", kind: "fraud", clientId: "inv_2891", clientName: "Amina Wanjiru", rule: "Bank wire recall attempt", detail: "Remitting bank requested recall of a USD subscription five days after settlement — units already issued.", severity: "high", status: "open", raisedAt: "2026-08-15T10:30:00Z" },
+  { id: "fr_1", kind: "fraud", clientId: "GN-118407", clientName: "Grace Chepkemoi Koech", rule: "Duplicate grower number", detail: "GN-118407 is registered twice: at Momul with ID 2847****, and at Litein with a different ID and phone. Both lines are in the 6 November payment file.", severity: "high", status: "open", raisedAt: "2026-11-06T06:20:00Z" },
+  { id: "fr_2", kind: "fraud", clientId: "GN-120955", clientName: "Samuel Mwangi Gichuki", rule: "Number changed before a bonus", detail: "The farmer's phone number was changed through an agent two days before the October bonus run. The new line was registered to someone else a week ago.", severity: "high", status: "under_review", assignee: "Kevin Baraka", caseId: "cs_2", raisedAt: "2026-11-05T19:05:00Z" },
+  { id: "fr_3", kind: "fraud", clientId: "AG-2041", clientName: "Kiprotich Agencies (agent)", rule: "Agent cashing out one farmer repeatedly", detail: "Agent AG-2041 cashed out farmer GN-104233 nine times in four days, each just after midnight, for KES 2,000 to 3,000.", severity: "medium", status: "under_review", assignee: "Peter Otieno", caseId: "cs_5", raisedAt: "2026-11-08T07:15:00Z" },
+  { id: "fr_4", kind: "fraud", clientId: "M-10251", clientName: "Meru Fertiliser Depot (merchant)", rule: "Merchant sales spike", detail: "Till 512417 took KES 1.84M in voucher payments on 7 November, nine times its daily average, mostly from farmers at one buying centre.", severity: "medium", status: "open", raisedAt: "2026-11-08T13:40:00Z" },
+  { id: "fr_5", kind: "fraud", clientId: "GN-171206", clientName: "Esther Wangari Muriuki", rule: "PIN attempts then a new device", detail: "Three wrong PIN attempts on USSD, then a sign-in from a new phone and a Pay to M-PESA request to an unknown number.", severity: "high", status: "open", raisedAt: "2026-11-09T06:30:00Z" },
+  { id: "fr_6", kind: "fraud", clientId: "GN-185590", clientName: "Daniel Ombati Nyakundi", rule: "Same M-PESA line on several farmers", detail: "The M-PESA line on this farmer's Pay to M-PESA is the payout line of two other farmers at Kiamokama.", severity: "low", status: "cleared", raisedAt: "2026-11-02T10:30:00Z" },
 ];
 
 export type ReconciliationBreak = {
@@ -266,8 +265,11 @@ export type UnallocatedFund = {
 };
 
 export const UNALLOCATED_FUNDS: UnallocatedFund[] = [
-  { id: "uf_1", reference: "WIRE-KE-88301", amount: 500, currency: "USD", receivedAt: "2026-08-04T10:00:00Z", reason: "Reference missing investor ID", status: "unmatched" },
-  { id: "uf_2", reference: "WIRE-KE-88213", amount: 500, currency: "USD", receivedAt: "2026-07-22T11:05:00Z", reason: "Matched after manual review", status: "matched" },
+  { id: "uf_1", reference: "SHK7Q2M4XP", amount: 4_500, currency: "KES", receivedAt: "2026-11-08T10:00:00Z", reason: "M-PESA paybill deposit with account GN-10423 (one digit short of a grower number)", status: "unmatched" },
+  { id: "uf_2", reference: "SHJ3P9W1KD", amount: 12_000, currency: "KES", receivedAt: "2026-11-07T15:42:00Z", reason: "Deposit with no account number, from a line not on any farmer", status: "unmatched" },
+  { id: "uf_3", reference: "PR-2026-11-06/L4812", amount: 7_412, currency: "KES", receivedAt: "2026-11-06T09:05:00Z", reason: "Payment file line for GN-199001, a grower number not registered", status: "unmatched" },
+  { id: "uf_4", reference: "SHG8D5T2LA", amount: 3_000, currency: "KES", receivedAt: "2026-11-04T11:05:00Z", reason: "Matched to GN-131620 after the farmer called in", status: "matched" },
+  { id: "uf_5", reference: "SHF1B7N6QE", amount: 950, currency: "KES", receivedAt: "2026-11-02T08:20:00Z", reason: "Sender could not be reached in 7 days; returned to the sending line", status: "returned" },
 ];
 
 export type SystemUser = {
@@ -281,16 +283,16 @@ export type SystemUser = {
 };
 
 export const SYSTEM_USERS: SystemUser[] = [
-  { id: "u_1", name: "Faith Kamau", email: "faith.kamau@ktda.example", role: "bd_officer", status: "active", lastLogin: "2026-08-06T09:10:00Z" },
-  { id: "u_2", name: "Peter Otieno", email: "peter.otieno@ktda.example", role: "compliance_analyst", status: "active", lastLogin: "2026-08-06T08:45:00Z" },
-  { id: "u_3", name: "Grace Mumbi", email: "grace.mumbi@ktda.example", role: "operations", status: "active", lastLogin: "2026-08-06T07:30:00Z" },
-  { id: "u_4", name: "Daniel Kiptoo", email: "daniel.kiptoo@ktda.example", role: "head_of_finance", status: "active", lastLogin: "2026-08-05T18:00:00Z" },
-  { id: "u_5", name: "Susan Achieng", email: "susan.achieng@ktda.example", role: "investment_committee", status: "active", lastLogin: "2026-08-05T16:20:00Z" },
-  { id: "u_6", name: "IT Admin", email: "admin@ktda.example", role: "system_admin", status: "active", lastLogin: "2026-08-06T06:00:00Z" },
-  { id: "u_7", name: "Josephine Muthoni", email: "josephine.muthoni@ktda.example", role: "mlro", status: "active", lastLogin: "2026-08-08T15:30:00Z" },
-  { id: "u_8", name: "Kevin Baraka", email: "kevin.baraka@ktda.example", role: "compliance", status: "active", lastLogin: "2026-08-11T08:10:00Z" },
-  { id: "u_9", name: "Mercy Wanjala", email: "mercy.wanjala@ktda.example", role: "client_services", status: "active", lastLogin: "2026-09-02T06:05:00Z" },
-  { id: "u_10", name: "Anthony Mwenda", email: "anthony.mwenda@ktda.example", role: "head_of_bd", status: "active", lastLogin: "2026-09-01T17:40:00Z" },
-  { id: "u_11", name: "Charles Mburu", email: "charles.mburu@ktda.example", role: "ceo", status: "active", lastLogin: "2026-09-03T06:20:00Z" },
-  { id: "u_12", name: "Ruth Nyambura", email: "ruth.nyambura@ktda.example", role: "investment_manager", status: "active", lastLogin: "2026-09-02T15:05:00Z" },
+  { id: "u_1", name: "Faith Kamau", email: "faith.kamau@ktda.example", role: "bd_officer", status: "active", lastLogin: "2026-11-09T09:10:00Z" },
+  { id: "u_2", name: "Peter Otieno", email: "peter.otieno@ktda.example", role: "compliance_analyst", status: "active", lastLogin: "2026-11-09T08:45:00Z" },
+  { id: "u_3", name: "Grace Mumbi", email: "grace.mumbi@ktda.example", role: "operations", status: "active", lastLogin: "2026-11-09T07:30:00Z" },
+  { id: "u_4", name: "Daniel Kiptoo", email: "daniel.kiptoo@ktda.example", role: "head_of_finance", status: "active", lastLogin: "2026-11-08T18:00:00Z" },
+  { id: "u_5", name: "Susan Achieng", email: "susan.achieng@ktda.example", role: "investment_committee", status: "active", lastLogin: "2026-11-07T16:20:00Z" },
+  { id: "u_6", name: "IT Admin", email: "admin@ktda.example", role: "system_admin", status: "active", lastLogin: "2026-11-09T06:00:00Z" },
+  { id: "u_7", name: "Josephine Muthoni", email: "josephine.muthoni@ktda.example", role: "mlro", status: "active", lastLogin: "2026-11-08T15:30:00Z" },
+  { id: "u_8", name: "Kevin Baraka", email: "kevin.baraka@ktda.example", role: "compliance", status: "active", lastLogin: "2026-11-09T08:10:00Z" },
+  { id: "u_9", name: "Mercy Wanjala", email: "mercy.wanjala@ktda.example", role: "client_services", status: "active", lastLogin: "2026-11-09T06:05:00Z" },
+  { id: "u_10", name: "Anthony Mwenda", email: "anthony.mwenda@ktda.example", role: "head_of_bd", status: "active", lastLogin: "2026-11-06T17:40:00Z" },
+  { id: "u_11", name: "Charles Mburu", email: "charles.mburu@ktda.example", role: "ceo", status: "active", lastLogin: "2026-11-07T06:20:00Z" },
+  { id: "u_12", name: "Ruth Nyambura", email: "ruth.nyambura@ktda.example", role: "investment_manager", status: "active", lastLogin: "2026-11-06T15:05:00Z" },
 ];

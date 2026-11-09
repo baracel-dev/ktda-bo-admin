@@ -35,31 +35,26 @@ export function ownerName(id: CrmOwnerId): string {
 /** The object `enquiry_ack_days` finally has something to measure. Before
  * this, the SOP's one-business-day acknowledgement standard was a number in
  * Platform Settings with nothing to hold it against. */
-export type EnquiryChannel = "app" | "web_form" | "email" | "phone" | "branch" | "ussd" | "ifa";
+export type EnquiryChannel = "ussd" | "agent" | "call_centre" | "app";
 export type EnquiryCategory =
-  | "product_information" | "how_to_invest" | "account_access" | "transaction_query"
-  | "statement_request" | "redemption_query" | "ifa_partnership" | "institutional" | "other";
+  | "missing_payment" | "wrong_number" | "agent_cashout" | "voucher_rejected"
+  | "pin_reset" | "statement_request" | "other";
 export type EnquiryStatus = "new" | "acknowledged" | "in_progress" | "resolved" | "converted" | "closed";
 
 export const ENQUIRY_CHANNEL_LABELS: Record<EnquiryChannel, string> = {
-  app: "Investor app",
-  web_form: "Website form",
-  email: "Email",
-  phone: "Phone",
-  branch: "Branch walk-in",
   ussd: "USSD",
-  ifa: "IFA",
+  agent: "Agent",
+  call_centre: "Call centre",
+  app: "App",
 };
 
 export const ENQUIRY_CATEGORY_LABELS: Record<EnquiryCategory, string> = {
-  product_information: "Product information",
-  how_to_invest: "How to invest",
-  account_access: "Account access",
-  transaction_query: "Transaction query",
-  statement_request: "Statement request",
-  redemption_query: "Redemption query",
-  ifa_partnership: "IFA partnership",
-  institutional: "Institutional / RFP",
+  missing_payment: "Missing payment",
+  wrong_number: "Wrong number",
+  agent_cashout: "Cash-out not received",
+  voucher_rejected: "Voucher not accepted",
+  pin_reset: "PIN or access",
+  statement_request: "Statement",
   other: "Other",
 };
 
@@ -76,15 +71,13 @@ export const ENQUIRY_STATUS_LABELS: Record<EnquiryStatus, string> = {
  * classified and routed according to client type and issue". Keeping the map
  * as data means Client Services can see *why* something landed where it did. */
 export const ENQUIRY_ROUTING: Record<EnquiryCategory, { queue: string; note: string }> = {
-  product_information: { queue: "Client Services", note: "First-line answer from published fund copy." },
-  how_to_invest: { queue: "Client Services", note: "Self-service walkthrough; convert to a lead if the enquirer wants help." },
-  account_access: { queue: "Client Services", note: "Identity re-verification before any access change." },
-  transaction_query: { queue: "Operations", note: "Needs the settlement log — Client Services cannot see it." },
-  statement_request: { queue: "Client Services", note: "Statements are self-service; resend rather than regenerate." },
-  redemption_query: { queue: "Operations", note: "Tier and gate state answer most of these." },
-  ifa_partnership: { queue: "Head of BD", note: "IFA onboarding runs its own due-diligence track." },
-  institutional: { queue: "Head of BD", note: "Opens a Bid/No-Bid assessment before any commitment." },
-  other: { queue: "Client Services", note: "Triage and reclassify — 'other' should stay rare." },
+  missing_payment: { queue: "Payments desk", note: "Check the farmer's line in the payment run first: paid, failed at M-PESA, or not in the file." },
+  wrong_number: { queue: "Customer desk", note: "A number change needs the farmer's ID and a second staff member's approval before any payment goes to it." },
+  agent_cashout: { queue: "Agent network", note: "Match the agent's cash-out record against the farmer's wallet debit before speaking to the agent." },
+  voucher_rejected: { queue: "Merchant desk", note: "Check the voucher's balance and expiry, then the merchant's till and its input list." },
+  pin_reset: { queue: "Customer desk", note: "Verify the farmer by ID and grower number before any PIN reset." },
+  statement_request: { queue: "Customer desk", note: "Send the wallet statement by SMS link; the farmer can also print it at the factory." },
+  other: { queue: "Customer desk", note: "Triage and reclassify; Other should stay rare." },
 };
 
 export type Enquiry = {
@@ -110,16 +103,14 @@ export type Enquiry = {
 };
 
 export const ENQUIRIES: Enquiry[] = [
-  { id: "enq_1", clientId: null, name: "Felix Ndungu", contact: "+254711220099", channel: "web_form", category: "how_to_invest", subject: "Minimum to start?", body: "Saw the KES 100 minimum on your site. Do I need a bank account or can I use M-Pesa only?", status: "new", ownerId: null, receivedAt: "2026-09-02T05:40:00Z", campaignId: "cmp_search" },
-  { id: "enq_2", clientId: "inv_2891", name: "Amina Wanjiru", contact: "amina.wanjiru@example.com", channel: "app", category: "transaction_query", subject: "Double deduction on 1 August", body: "M-Pesa took KES 50,000 twice but only one investment shows.", status: "in_progress", ownerId: "u_3", receivedAt: "2026-08-08T08:05:00Z", acknowledgedAt: "2026-08-08T08:20:00Z" },
-  { id: "enq_3", clientId: null, name: "Mercy Adhiambo", contact: "+254700998877", channel: "phone", category: "product_information", subject: "Is the USD fund open to me?", body: "Wants to know whether the Eurobond sub-fund is available to a Kenyan resident and what the minimum is.", status: "resolved", ownerId: "u_9", receivedAt: "2026-08-28T09:15:00Z", acknowledgedAt: "2026-08-28T09:22:00Z", resolvedAt: "2026-08-28T09:48:00Z", resolution: "Confirmed USD 10 minimum, resident-eligible, wire-funded. Sent the fund factsheet." },
-  { id: "enq_4", clientId: null, name: "Kilimo SACCO", contact: "treasury@kilimosacco.co.ke", channel: "email", category: "institutional", subject: "Placement of KES 40M reserve", body: "Treasury committee is looking for a liquid, CMA-registered fixed-income vehicle for part of the reserve.", status: "acknowledged", ownerId: "u_10", receivedAt: "2026-08-25T11:30:00Z", acknowledgedAt: "2026-08-25T13:00:00Z" },
-  { id: "enq_5", clientId: null, name: "Kevin Mutuku", contact: "kevin.mutuku@advisors.co.ke", channel: "ifa", category: "ifa_partnership", subject: "Adding BRF to my client offering", body: "Certified IFA, currently distributing two money-market funds. Wants the BRF partner pack.", status: "converted", ownerId: "u_10", receivedAt: "2026-08-04T10:00:00Z", acknowledgedAt: "2026-08-04T10:35:00Z", resolvedAt: "2026-08-05T14:20:00Z", resolution: "Referred into the IFA due-diligence track.", convertedLeadId: "ld_3" },
-  // Deliberately breached: received Friday, acknowledged the following Tuesday.
-  // A CRM whose fixtures all pass its own SLA proves nothing about whether the
-  // breach path renders.
-  { id: "enq_6", clientId: null, name: "Josphat Kariuki", contact: "+254720445566", channel: "branch", category: "statement_request", subject: "Statement for my late father's account", body: "Walked in asking for a statement on a deceased relative's holding.", status: "in_progress", ownerId: "u_9", receivedAt: "2026-08-21T15:50:00Z", acknowledgedAt: "2026-08-25T09:10:00Z" },
-  { id: "enq_7", clientId: null, name: "Wanjiku Njeri", contact: "+254733889900", channel: "ussd", category: "account_access", subject: "Cannot get past the PIN screen", body: "Locked out after repeated PIN attempts on the USSD menu.", status: "new", ownerId: null, receivedAt: "2026-09-02T06:10:00Z" },
+  { id: "enq_1", clientId: "GN-104233", name: "Joseph Kiprotich Langat", contact: "+254 722 104 233", channel: "ussd", category: "missing_payment", subject: "October bonus not received", body: "Neighbours at Litein were paid the October green leaf payment on Friday. Nothing has reached my wallet.", status: "new", ownerId: null, receivedAt: "2026-11-09T05:40:00Z" },
+  { id: "enq_2", clientId: "GN-118407", name: "Grace Chepkemoi Koech", contact: "+254 711 418 407", channel: "agent", category: "agent_cashout", subject: "Cash-out at agent not received", body: "Agent AG-2041 in Litein says the KES 6,000 cash-out failed, but my wallet shows it was taken.", status: "in_progress", ownerId: "u_3", receivedAt: "2026-11-06T08:05:00Z", acknowledgedAt: "2026-11-06T08:20:00Z" },
+  { id: "enq_3", clientId: "GN-131620", name: "Lucy Wanjiku Ndirangu", contact: "+254 710 316 200", channel: "call_centre", category: "voucher_rejected", subject: "Fertiliser voucher refused at Othaya Farm Inputs", body: "The shop's till said the voucher is not valid for NPK. I was told it covers fertiliser.", status: "resolved", ownerId: "u_9", receivedAt: "2026-11-04T09:15:00Z", acknowledgedAt: "2026-11-04T09:22:00Z", resolvedAt: "2026-11-04T11:48:00Z", resolution: "The merchant's input list was missing NPK 23:23:0. Added it; the farmer redeemed the voucher the same afternoon." },
+  { id: "enq_4", clientId: "GN-142078", name: "Peter Kimathi M'Ikiara", contact: "+254 724 142 078", channel: "call_centre", category: "wrong_number", subject: "Payment notice went to my old number", body: "I changed my line in September. The November payment notice came to my wife's phone, which was my old number.", status: "acknowledged", ownerId: "u_9", receivedAt: "2026-11-05T11:30:00Z", acknowledgedAt: "2026-11-05T13:00:00Z" },
+  { id: "enq_5", clientId: "GN-150311", name: "Agnes Moraa Nyaboke", contact: "+254 715 150 311", channel: "app", category: "statement_request", subject: "Statement for the SACCO loan", body: "The SACCO wants six months of tea payments. Can I get a statement from the wallet?", status: "resolved", ownerId: "u_9", receivedAt: "2026-11-02T10:00:00Z", acknowledgedAt: "2026-11-02T10:35:00Z", resolvedAt: "2026-11-02T14:20:00Z", resolution: "Statement link sent by SMS; printed copy left at Nyansiongo factory office." },
+  // Deliberately breached: received Thursday, still not acknowledged.
+  { id: "enq_6", clientId: "GN-185590", name: "Daniel Ombati Nyakundi", contact: "+254 708 185 590", channel: "agent", category: "missing_payment", subject: "Paid for fewer kilos than delivered", body: "My payment notice shows 412 kg for October. The buying centre record says 486 kg.", status: "new", ownerId: null, receivedAt: "2026-11-05T15:50:00Z" },
+  { id: "enq_7", clientId: "GN-171206", name: "Esther Wangari Muriuki", contact: "+254 712 171 206", channel: "ussd", category: "pin_reset", subject: "Locked out of the USSD menu", body: "Locked out after three wrong PIN attempts on the USSD menu.", status: "new", ownerId: null, receivedAt: "2026-11-09T06:10:00Z" },
 ];
 
 /** Business days between two instants. The SLA is stated in business days by
@@ -258,16 +249,14 @@ export type CrmTask = {
 };
 
 export const CRM_TASKS: CrmTask[] = [
-  { id: "tsk_1", title: "Call Amina Wanjiru back on the duplicate deduction", ownerId: "u_9", dueDate: "2026-09-03", status: "open", source: "interaction", subjectType: "client", subjectId: "inv_2891", createdAt: "2026-08-08T08:10:00Z" },
-  { id: "tsk_2", title: "Second contact attempt — Felix Ndungu", ownerId: "u_1", dueDate: "2026-09-03", status: "open", source: "interaction", subjectType: "lead", subjectId: "ld_2", createdAt: "2026-09-01T09:35:00Z" },
-  { id: "tsk_3", title: "Send USD factsheet to Grace Wairimu and open onboarding", ownerId: "u_1", dueDate: "2026-09-04", status: "open", source: "interaction", subjectType: "lead", subjectId: "ld_3", createdAt: "2026-08-29T14:30:00Z" },
-  { id: "tsk_4", title: "Acknowledge enquiry from Wanjiku Njeri", detail: "USSD PIN lockout — unacknowledged and inside the one-business-day standard.", ownerId: "u_9", dueDate: "2026-09-03", status: "open", source: "sla", subjectType: "enquiry", subjectId: "enq_7", createdAt: "2026-09-02T06:10:00Z" },
-  { id: "tsk_5", title: "Tiered liquidity proposal for Kilimo SACCO", ownerId: "u_10", dueDate: "2026-09-08", status: "open", source: "interaction", subjectType: "opportunity", subjectId: "opp_1", createdAt: "2026-08-26T10:30:00Z" },
-  // Overdue, on purpose — a task board where nothing is ever late has not been
-  // tested against the state that actually matters.
-  { id: "tsk_6", title: "Chase Josphat Kariuki — deceased-estate statement request", detail: "Needs a grant of probate before anything is released.", ownerId: "u_9", dueDate: "2026-08-27", status: "open", source: "sla", subjectType: "enquiry", subjectId: "enq_6", createdAt: "2026-08-25T09:15:00Z" },
-  { id: "tsk_7", title: "Annual servicing review — Cynthia Njeri", ownerId: "u_1", dueDate: "2027-05-03", status: "open", source: "review_cycle", subjectType: "client", subjectId: "inv_3122", createdAt: "2026-08-15T13:30:00Z" },
-  { id: "tsk_8", title: "Send fund factsheet to Mercy Adhiambo", ownerId: "u_9", dueDate: "2026-08-28", status: "done", source: "manual", subjectType: "enquiry", subjectId: "enq_3", createdAt: "2026-08-28T09:25:00Z", completedAt: "2026-08-28T09:47:00Z" },
+  { id: "tsk_1", title: "Call Grace Chepkemoi Koech back on the failed agent cash-out", ownerId: "u_9", dueDate: "2026-11-10", status: "open", source: "interaction", subjectType: "enquiry", subjectId: "enq_2", createdAt: "2026-11-06T08:30:00Z" },
+  { id: "tsk_2", title: "Get agent AG-2041's cash-out log for 6 November", ownerId: "u_3", dueDate: "2026-11-10", status: "open", source: "interaction", subjectType: "enquiry", subjectId: "enq_2", createdAt: "2026-11-06T09:00:00Z" },
+  { id: "tsk_3", title: "Confirm Peter Kimathi M'Ikiara's new number with Githongo factory", detail: "Payments to GN-142078 are held until the change is approved.", ownerId: "u_9", dueDate: "2026-11-11", status: "open", source: "interaction", subjectType: "enquiry", subjectId: "enq_4", createdAt: "2026-11-05T13:05:00Z" },
+  { id: "tsk_4", title: "Acknowledge Esther Wangari Muriuki's PIN lockout", detail: "USSD lockout; inside the one-business-day standard.", ownerId: "u_9", dueDate: "2026-11-10", status: "open", source: "sla", subjectType: "enquiry", subjectId: "enq_7", createdAt: "2026-11-09T06:10:00Z" },
+  // Overdue, on purpose: a board where nothing is ever late proves nothing.
+  { id: "tsk_5", title: "Chase Kiamokama factory for Daniel Ombati Nyakundi's October kilos", detail: "Buying-centre record and payment file disagree by 74 kg.", ownerId: "u_3", dueDate: "2026-11-06", status: "open", source: "sla", subjectType: "enquiry", subjectId: "enq_6", createdAt: "2026-11-05T16:00:00Z" },
+  { id: "tsk_6", title: "Re-send the October bonus notice to Litein farmers who missed it", ownerId: "u_1", dueDate: "2026-11-12", status: "open", source: "manual", subjectType: null, subjectId: null, createdAt: "2026-11-09T07:00:00Z" },
+  { id: "tsk_7", title: "Add NPK 23:23:0 to Othaya Farm Inputs' voucher list", ownerId: "u_9", dueDate: "2026-11-04", status: "done", source: "manual", subjectType: "enquiry", subjectId: "enq_3", createdAt: "2026-11-04T09:25:00Z", completedAt: "2026-11-04T11:40:00Z" },
 ];
 
 // ---- Coverage & commercial segmentation (dated assignments) ----

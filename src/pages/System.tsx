@@ -82,13 +82,13 @@ export default function System() {
     <div>
       <PageHeader
         title="System"
-        tooltip="Platform plumbing — third-party integrations, the scheduled batch jobs behind NAV/reconciliation/distributions, and per-app maintenance mode. Every action is audit-logged."
-        subtitle="Integrations, scheduled processing and maintenance control for every surface of the platform."
+        tooltip="The platform's connections, the scheduled jobs behind payment runs, reconciliation and messages, and maintenance mode for each channel. Every action is audit-logged."
+        subtitle="Connections, scheduled jobs and maintenance for USSD, the app, agents and the back office."
       />
 
       <div className="flex flex-col gap-6">
         <Card className="overflow-hidden">
-          <SectionHeader icon={Plug} title="Integrations" description="Third-party services the platform depends on — KYC, payments, pricing, custody and comms." />
+          <SectionHeader icon={Plug} title="Integrations" description="Services the platform depends on: M-PESA, SasaPay, the identity registry, SMS and the factories' payment files." />
           {integrations.loading ? (
             <div className="p-5 flex flex-col gap-3">
               <Skeleton className="h-12 w-full" />
@@ -128,7 +128,7 @@ export default function System() {
         </Card>
 
         <Card className="overflow-hidden">
-          <SectionHeader icon={CalendarClock} title="Scheduled jobs" description="The EOD/EOM batch processing behind NAV, reconciliation, distributions and monitoring (Ops SOP)." />
+          <SectionHeader icon={CalendarClock} title="Scheduled jobs" description="The end-of-day jobs behind payment runs, reconciliation, payment notices and monitoring." />
           {jobs.loading ? (
             <div className="p-5 flex flex-col gap-3">
               <Skeleton className="h-12 w-full" />

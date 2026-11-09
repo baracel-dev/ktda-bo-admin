@@ -81,10 +81,10 @@ test.describe("signed in", () => {
     const menu = nav(page);
     for (const section of ["People", "Money", "Admin"]) await menu.getByRole("button", { name: section, exact: true }).click();
     for (const label of ["Configuration", "Tariffs", "Change approvals", "Engine users", "Platform settings", "Feature flags", "Engine overview", "Institutions",
-      "Onboarding review", "KYC periodic review", "Dynamic review", "Screening"]) {
+      "Onboarding review", "KYC periodic review", "Dynamic review", "Screening", "General ledger"]) {
       await expect(menu.getByRole("link", { name: label, exact: true })).toHaveCount(0);
     }
-    expect(REMOVED_PAGES.size).toBe(13);
+    expect(REMOVED_PAGES.size).toBe(14);
     for (const path of REMOVED_PAGES) {
       await page.goto(path);
       await expect(page.getByTestId("page-removed")).toContainText("Not part of this back office");

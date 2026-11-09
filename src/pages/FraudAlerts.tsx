@@ -8,8 +8,8 @@ export default function FraudAlerts() {
     <AlertsBoard
       eyebrow="Fraud Reporting"
       title="Fraud alerts"
-      tooltip="Fraud indicators rather than laundering typologies: account takeover (a new device just before a withdrawal), third-party payment (a payout account in someone else's name), mule patterns and replayed payment callbacks."
-      subtitle="Fraud indicators raised across logins, payout instructions and the payment rails — opening a case moves an alert into the investigation workflow."
+      tooltip="Duplicate grower numbers, a phone number changed just before a payment or bonus, an agent cashing out the same farmer again and again, a merchant's sales jumping, and sign-ins from a new phone after wrong PINs."
+      subtitle="Fraud signs raised on farmers, agents and merchants. Opening a case moves an alert into an investigation."
       fetchAlerts={getFraudAlerts}
       casesPath="/fraud-cases"
     />

@@ -97,17 +97,25 @@ const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
 const colName = (i: number) => { let s = ""; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 
-/** A one-sheet workbook: the header row bold, numbers as numbers. */
-export function toXlsx(sheetName: string, columns: Column[], rows: Row[]): Uint8Array {
+/** What every export says it is: "Institution", "KTDA Holdings", ... */
+export type ExportHeader = [label: string, value: string][];
+
+/** A one-sheet workbook: the `header` lines first (label bold), a blank row,
+ *  then the table with its header row bold, numbers as numbers. */
+export function toXlsx(sheetName: string, columns: Column[], rows: Row[], header: ExportHeader = []): Uint8Array {
   const enc = new TextEncoder();
   const cell = (ref: string, v: Cell, style = 0) => {
     if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}"${style ? ` s="${style}"` : ""}><v>${v}</v></c>`;
     const t = cellText(v);
     return t ? `<c r="${ref}" t="inlineStr"${style ? ` s="${style}"` : ""}><is><t xml:space="preserve">${xml(t)}</t></is></c>` : "";
   };
+  // The header lines, then a blank row, then the table.
+  const top = header.length ? header.length + 1 : 0;
+  const at = top + 1;
   const sheetRows = [
-    `<row r="1">${columns.map((c, i) => cell(`${colName(i)}1`, c.header, 1)).join("")}</row>`,
-    ...rows.map((r, ri) => `<row r="${ri + 2}">${columns.map((c, i) => cell(`${colName(i)}${ri + 2}`, r[c.key])).join("")}</row>`),
+    ...header.map(([k, v], i) => `<row r="${i + 1}">${cell(`A${i + 1}`, k, 1)}${cell(`B${i + 1}`, v)}</row>`),
+    `<row r="${at}">${columns.map((c, i) => cell(`${colName(i)}${at}`, c.header, 1)).join("")}</row>`,
+    ...rows.map((r, ri) => `<row r="${at + ri + 1}">${columns.map((c, i) => cell(`${colName(i)}${at + ri + 1}`, r[c.key])).join("")}</row>`),
   ].join("");
   const name = xml(sheetName.replace(/[\\/?*[\]:]/g, " ").slice(0, 31)) || "Report";
   const parts: Record<string, string> = {

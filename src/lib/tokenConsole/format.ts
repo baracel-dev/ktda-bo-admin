@@ -26,6 +26,19 @@ export function units(quantity: number | null | undefined): string {
   return new Intl.NumberFormat("en-US").format(quantity);
 }
 
+/** A whole-seconds elapsed time, compact: "45s", "2m 34s", "1h 05m 03s". */
+export function duration(totalSeconds: number | null | undefined): string {
+  if (totalSeconds === null || totalSeconds === undefined || !Number.isFinite(totalSeconds) || totalSeconds < 0) return "—";
+  const whole = Math.floor(totalSeconds);
+  const s = whole % 60;
+  const m = Math.floor(whole / 60) % 60;
+  const h = Math.floor(whole / 3600);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (h > 0) return `${h}h ${pad(m)}m ${pad(s)}s`;
+  if (m > 0) return `${m}m ${pad(s)}s`;
+  return `${s}s`;
+}
+
 /** Rates arrive as fractions: 0.1 means 10%. Checked against the live
  * service (coupon tariff 0.1, sub-fund gate 0.1, withholding 0.15). The
  * console's own helper assumed the opposite. */

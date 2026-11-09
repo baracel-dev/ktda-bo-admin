@@ -4,7 +4,7 @@ import { CheckCircle2, Download, FileUp, Info, Play, Send } from "lucide-react";
 import { Badge, Button, Field, GlassPanel, NotePanel, PageHeader, ProgressBar, SectionTitle, Skeleton, StatCard } from "../../ui";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { useAction } from "../../lib/tokenConsole/useAction";
-import { dateTime, money, units } from "../../lib/tokenConsole/format";
+import { dateTime, duration, money, units } from "../../lib/tokenConsole/format";
 import { tokenConsole } from "../../lib/api.tokenConsole";
 import {
   BULK_COLUMNS, ERR, MAX_PAYMENT_KES, MAX_UPLOAD_MB, PAYOUT_NOT_AVAILABLE, bulkLoads, earlierRunIn, hasApproval, hasRefusals, readsSapFiles, summariseCsv,
@@ -561,6 +561,12 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
       {run && TERMINAL.has(run.status) && (
         <Step n={4} title="Result" className="mb-6">
           {payout ? <PayoutOutcomeNote run={run} /> : <Outcome run={run} />}
+          {run.completedAt && (
+            <p className="mt-2 text-[12.5px] text-text-soft" data-testid="run-total-time">
+              Total time <span className="tabular font-medium text-text">{duration((Date.parse(run.completedAt) - Date.parse(run.startedAt)) / 1000)}</span>
+              {" "}· started {dateTime(run.startedAt)}, finished {dateTime(run.completedAt)}
+            </p>
+          )}
           <RunChecks runId={run.runId} checks={recon?.fileFormat ? recon : run} currency={run.currency} />
           {payout && <PayoutRows run={run} />}
           {flow === "PAYMENT" && <RefusedLines runId={run.runId} refusals={hasRefusals(recon) ? recon : run} currency={run.currency} />}
@@ -702,7 +708,7 @@ function Progress({ run, seenAt, processedLabel, skippedHint }: { run: BulkRun; 
         <span className="tabular">{Math.floor(pct)}%</span>
       </div>
       <ProgressBar value={pct} tone={tone} />
-      <div className={`mt-4 grid grid-cols-2 gap-3 ${readsSapFiles(run) && run.fileFormat === "SAP" ? "md:grid-cols-4 xl:grid-cols-7" : "md:grid-cols-5"}`}>
+      <div className={`mt-4 grid grid-cols-2 gap-3 ${readsSapFiles(run) && run.fileFormat === "SAP" ? "md:grid-cols-4 xl:grid-cols-8" : "md:grid-cols-6"}`}>
         <StatCard label="Rows read" value={units(run.totalRows)} />
         <StatCard label={processedLabel} value={units(run.processedCount)} />
         <StatCard label="Skipped" value={units(run.skippedCount)} hint={skippedHint} />
@@ -714,6 +720,8 @@ function Progress({ run, seenAt, processedLabel, skippedHint }: { run: BulkRun; 
           </>
         )}
         <StatCard label="Throughput" value={rate == null ? "—" : `${units(rate)}/s`} hint={run.flow === "PAYMENT" || run.flow === "PAYOUT" ? money(run.totalAmount, run.currency) : undefined} />
+        <StatCard label={run.completedAt ? "Total time" : "Elapsed"} value={duration(seconds)} hint={run.completedAt ? undefined : "so far"} />
+
       </div>
     </div>
   );

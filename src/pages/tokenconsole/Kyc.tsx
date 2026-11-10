@@ -8,6 +8,8 @@ import { calendarDate, label, units } from "../../lib/tokenConsole/format";
 import { canDecideKyc } from "../../lib/tokenConsole/kyc";
 import { DOC_ORDER } from "../../lib/tokenConsole/identity";
 import { useAuth } from "../../lib/auth";
+import { ACT } from "../../lib/staffContract";
+import { Allowed } from "../../components/Allowed";
 import { farmersApi } from "../../lib/api.farmers";
 import {
   IDENTITY_LABEL, IDENTITY_TONE, KYC_LABEL, KYC_TONE, NOT_AVAILABLE, STATE_LABEL, STATE_TONE,
@@ -131,8 +133,10 @@ export default function TokenConsoleKyc() {
               count: t === "ALL" ? counts?.total : kycCounts?.[COUNT_KEY[t]],
             }))}
           />
-          {tab === "NONE" && <KycSweep onFinished={refresh} />}
-          {(tab === "PENDING" || tab === "NONE") && <KycBulkDecision onFinished={refresh} />}
+          <Allowed perm={ACT.kycDecide} fallback={null}>
+            {tab === "NONE" && <KycSweep onFinished={refresh} />}
+            {(tab === "PENDING" || tab === "NONE") && <KycBulkDecision onFinished={refresh} />}
+          </Allowed>
           <FilterBar>
             <SearchInput value={typed} onChange={setTyped} placeholder="Grower number, name or phone" className="w-72" />
           </FilterBar>
@@ -187,6 +191,7 @@ export default function TokenConsoleKyc() {
 
 function FarmerRow({ farmer: f, onOpen, onChanged }: { farmer: Farmer; onOpen: () => void; onChanged: (f: Farmer) => void }) {
   const toast = useToast();
+  const mayStart = useAuth().can(ACT.kycDecide);
   const k = f.kyc ?? null;
   const status = k?.status ?? "NONE";
   const start = useAction(() => farmersApi.startKyc(f.growerNo));
@@ -215,7 +220,7 @@ function FarmerRow({ farmer: f, onOpen, onChanged }: { farmer: Farmer; onOpen: (
       </td>
       <td className="max-w-xs px-3 py-2 text-[12.5px] text-text-soft" data-testid="kyc-row-note">{k?.note ?? "—"}</td>
       <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-        {status === "NONE" && activated(f) && (
+        {status === "NONE" && activated(f) && mayStart && (
           <Button size="sm" variant="outline" disabled={start.pending} onClick={() => void runStart()}>{start.pending ? "Starting…" : "Start KYC"}</Button>
         )}
         {status === "PENDING" && <Button size="sm" variant="outline" onClick={onOpen}>Decide</Button>}

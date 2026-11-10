@@ -54,3 +54,29 @@ export const rejectedRequest = (reference: string, target: { kind: string; refer
   maker: "staff:maker@ktda.test", madeAt: "2026-11-08T09:00:00Z", checker: "staff:checker@ktda.test", decidedAt: "2026-11-08T11:30:00Z",
   decisionNote: note, appliedAt: null, error: null, checkerRoles: ["ADMIN"], resubmitOf: null,
 });
+
+/** Every permission key of staff-contract v1. */
+export const ALL_PERMISSIONS = [
+  "page:dashboard", "page:farmers", "page:kyc", "page:merchants", "page:agents", "page:approvals", "page:payouts", "page:bulk",
+  "page:reports", "page:messages", "page:users", "page:settings",
+  "act:approvals.decide", "act:payouts.release", "act:kyc.decide", "act:bulk.run", "act:merchants.decide", "act:agents.manage",
+  "act:users.manage", "act:settings.change",
+];
+
+/** A staff directory record (StaffView); an active ADMIN holding every key by default. */
+export const staffView = (over: Record<string, unknown> = {}) => ({
+  id: "st-amina", email: STAFF.email, fullName: STAFF.fullName, roles: ["ADMIN"], permissions: ALL_PERMISSIONS, status: "ACTIVE",
+  legacy: false, invitedBy: null, invitedAt: null, lastSignInAt: "2026-11-10T07:00:00Z", updatedAt: null, ...over,
+});
+
+/** The signed-in member's directory record: GET /staff/me and POST /staff/me/sign-in answer `me`. */
+export async function stubStaffMe(page: Page, me: Record<string, unknown> | { status: number; body: unknown }) {
+  const calls: { method: string; path: string; body: unknown }[] = [];
+  await page.route(/\/omni\/api\/operator\/staff\/me(\/sign-in)?$/, (route) => {
+    const req = route.request();
+    calls.push({ method: req.method(), path: new URL(req.url()).pathname, body: req.method() === "POST" ? req.postDataJSON() : null });
+    if ("status" in me && "body" in me && typeof me.status === "number") return json(route, me.body, me.status);
+    return json(route, me);
+  });
+  return calls;
+}

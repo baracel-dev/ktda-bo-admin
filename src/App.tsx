@@ -25,7 +25,7 @@ const Approvals = lazy(() => import("./pages/Approvals"));
 const Transactions = lazy(() => import("./pages/Transactions"));
 const Reconciliation = lazy(() => import("./pages/Reconciliation"));
 const UnallocatedFunds = lazy(() => import("./pages/UnallocatedFunds"));
-const UsersAdmin = lazy(() => import("./pages/UsersAdmin"));
+const UsersRoles = lazy(() => import("./pages/ktda/UsersRoles"));
 const Reports = lazy(() => import("./pages/Reports"));
 const PlatformSettings = lazy(() => import("./pages/PlatformSettings"));
 const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
@@ -132,7 +132,7 @@ function AppRoutes() {
       {/* Identity checks merged into the KYC desk; old links still land. */}
       <Route path="/token-console/identity" element={<Navigate to="/token-console/kyc" replace />} />
       <Route path="/token-console/users" element={<ProtectedRoute><TokenConsoleUsers /></ProtectedRoute>} />
-      <Route path="/users" element={<ProtectedRoute><UsersAdmin /></ProtectedRoute>} />
+      <Route path="/users" element={<ProtectedRoute><UsersRoles /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><PlatformSettings /></ProtectedRoute>} />
       <Route path="/feature-flags" element={<ProtectedRoute><FeatureFlags /></ProtectedRoute>} />

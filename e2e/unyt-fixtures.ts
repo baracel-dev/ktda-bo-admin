@@ -7,7 +7,7 @@ import type {
   CheckedApplication, CustomerSummary, CustomerTransactionEntry, Intervention,
   PaymentIssue, QueuedDocument, ReportingRun, SurveillanceAlert, TransactionTotals,
 } from "../src/lib/omniApi";
-import { OTHER, json, signIn } from "./stubs";
+import { OTHER, json, signIn, staffView } from "./stubs";
 
 /* Representative Baracel Unyt data in the services' own response shapes.
  * Every fixture is typed with the type the page's API client reads it as
@@ -327,6 +327,8 @@ export async function stubUnyt(page: Page, mode: Mode) {
     const isOmni = url.pathname.startsWith("/omni/");
     const path = isOmni ? url.pathname.replace(/^\/omni\/api\/operator/, "") : url.pathname.replace(/^\/tok/, "");
     if (path === "/auth/me") return route.fallback();
+    // The staff directory's record of the signed-in member: an admin, so every page opens.
+    if (isOmni && path === "/staff/me" && req.method() === "GET") return json(route, staffView());
     if (req.method() !== "GET") {
       writes.push(`${req.method()} ${url.pathname}`);
       return json(route, { error: "Writes are not expected here" }, 405);

@@ -29,7 +29,6 @@ const DEMO_PAGES: [string, string][] = [
   ["/unallocated-funds", "Unallocated funds"],
   ["/audit-log", "Audit log"],
   ["/system", "System"],
-  ["/users", "Users & roles"],
 ];
 
 const heading = (page: Page) => page.locator("main h1").first();

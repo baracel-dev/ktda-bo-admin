@@ -16,7 +16,9 @@
    - a farmer KYC decision VERIFIED when the registry's answer was not MATCH;
    - a bulk KYC decision, except verifying only the registry's matches. */
 
-export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE" | "FARMER_KYC_BULK_DECISION";
+export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE" | "FARMER_KYC_BULK_DECISION"
+  /* The same three writes on a KTDA channel agent (/ktda/agents), applied on the channel-api. */
+  | "KTDA_AGENT_FLOAT_TOP_UP" | "KTDA_AGENT_SUSPEND" | "KTDA_AGENT_REINSTATE";
 export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   AGENT_FLOAT_TOP_UP: "Float top-up",
   AGENT_SUSPEND: "Agent suspension",
@@ -25,6 +27,9 @@ export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   MERCHANT_DECISION: "Merchant KYB",
   FARMER_KYC_OVERRIDE: "KYC override",
   FARMER_KYC_BULK_DECISION: "Bulk KYC decision",
+  KTDA_AGENT_FLOAT_TOP_UP: "Float top-up (app agent)",
+  KTDA_AGENT_SUSPEND: "Agent suspension (app agent)",
+  KTDA_AGENT_REINSTATE: "Agent reinstatement (app agent)",
 };
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FAILED";

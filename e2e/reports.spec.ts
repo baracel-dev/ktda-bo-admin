@@ -46,6 +46,8 @@ async function stub(page: Page, opts: { runs?: Obj[] | null; farmers?: (q: URLSe
       const r = opts.farmers?.(url.searchParams) ?? { items: url.searchParams.get("kyc") === "REJECTED" ? [farmer("TEST000014", { kyc: { status: "REJECTED", identityResult: "MISMATCH", startedAt: null, decidedAt: "2026-11-05T08:00:00Z", note: "Name differs." } })] : [farmer("TEST000011"), farmer("TEST000012")] };
       return route.fulfill({ status: 200, contentType: "application/json", headers: paged(r.items, r.total, Number(url.searchParams.get("page")) || 1), body: JSON.stringify(r.items) });
     }
+    // An omnichannel without the KTDA channel passthrough: the agents come from its own register.
+    if (path.startsWith("/ktda/agents")) return json(route, envelope(404, "Not Found"), 404);
     if (path === "/agents") {
       if (opts.agents === null) return json(route, envelope(404, "Not Found"), 404);
       const items = opts.agents ?? [agent("A-0001"), agent("A-0002", { onboardedThisMonth: 5, commissionThisMonth: 100.5 })];

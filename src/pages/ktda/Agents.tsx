@@ -5,9 +5,9 @@ import { Badge, Button, Field, FilterBar, Input, Modal, NotePanel, PageHeader, S
 import { useAsyncData } from "../../lib/useAsyncData";
 import { useAction } from "../../lib/tokenConsole/useAction";
 import { calendarDate, dateTime, money, units } from "../../lib/tokenConsole/format";
-import { AGENTS_NOT_AVAILABLE, agentsApi } from "../../lib/api.agents";
+import { AGENTS_NOT_AVAILABLE, RECORDED_IN_APP, agentsApi } from "../../lib/api.agents";
 import {
-  ACTIVITY_LABEL, AGENT_STATUS_LABEL, AGENT_STATUS_TONE, RECORDABLE_ACTIVITIES, activityMovesMoney,
+  ACTIVITY_LABEL, AGENT_STATUS_LABEL, AGENT_STATUS_TONE, CHANNEL_AGENT_NO, RECORDABLE_ACTIVITIES, activityMovesMoney,
   type Agent, type AgentStatus, type RecordActivity, type RegisterAgent,
 } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
@@ -23,7 +23,14 @@ import { REASON_MAX, type Approval } from "../../lib/approvalsContract";
    low, suspend with a reason (direct and audited for now; the prototype's
    Approvals step comes with maker-checker later), and a drawer linkable as
    ?focus=<agentNo> with a float top-up, a "record activity" form and the
-   activities list. */
+   activities list.
+
+   On KTDA the agents are the channel-api's (api.agents.ts decides once per
+   page load): the agents the agent app signs in as. Registering one sends
+   the starter PIN to their phone by SMS; the app asks for a new PIN at first
+   sign-in. Their cash in, cash out and onboarding are recorded in the app,
+   so the drawer has no "record activity" form and no activities list for
+   them. */
 
 const SIZE = 20;
 type Tab = "ALL" | "LOW_FLOAT" | "SUSPENDED";
@@ -32,6 +39,14 @@ const isTab = (v: string | null): v is Tab => !!v && (TABS as string[]).includes
 
 /** 200000 as "200.0K". */
 const compact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : money(n);
+
+/** What staff are told once a channel agent is registered. The starter PIN
+ *  itself only where the channel echoed it (an environment that echoes codes). */
+function registeredMessage(a: Agent): string {
+  if (a.source !== "channel") return `${a.fullName} is registered as ${a.agentNo}.`;
+  const sms = `${a.fullName} is registered as ${a.agentNo}. The starter PIN went by SMS to ${a.pinSentTo ?? "their phone"}; the agent app asks for a new PIN at first sign-in.`;
+  return a.devCode ? `${sms} This environment echoes codes: the starter PIN is ${a.devCode}.` : sms;
+}
 
 const NotAvailable = () => (
   <div data-testid="not-available">
@@ -202,7 +217,10 @@ export default function Agents() {
         />
       )}
       {registering && (
-        <RegisterAgentModal onClose={() => setRegistering(false)} onDone={(a) => { setRegistering(false); refresh(); set({ focus: a.agentNo }); }} />
+        <RegisterAgentModal
+          onClose={() => setRegistering(false)}
+          onDone={(a) => { setRegistering(false); if (a.source === "channel") toast.push(registeredMessage(a)); refresh(); set({ focus: a.agentNo }); }}
+        />
       )}
     </div>
   );
@@ -262,6 +280,13 @@ const positive = (v: string) => Number.isFinite(Number(v)) && Number(v) > 0;
 
 function RegisterAgentModal({ onClose, onDone }: { onClose: () => void; onDone: (a: Agent) => void }) {
   const [f, setF] = useState({ agentNo: "", fullName: "", phone: "", town: "", floatLimit: "" });
+  // On the channel the number must be one the agent app accepts.
+  const [channel, setChannel] = useState(false);
+  useEffect(() => {
+    let live = true;
+    agentsApi.source().then((src) => { if (live) setChannel(src === "channel"); }, () => undefined);
+    return () => { live = false; };
+  }, []);
   const act = useAction((body: RegisterAgent) => agentsApi.register(body));
   const field = (k: keyof typeof f, labelText: string, extra: Record<string, string> = {}) => (
     <Field label={labelText}>
@@ -271,6 +296,7 @@ function RegisterAgentModal({ onClose, onDone }: { onClose: () => void; onDone: 
   const problem = !f.fullName.trim() || !f.phone.trim() || !f.town.trim() || !f.floatLimit.trim() ? "Name, phone, town and float limit are needed."
     : !PHONE.test(f.phone.trim()) ? "That does not look like a phone number."
     : !positive(f.floatLimit) ? "The float limit is an amount above 0."
+    : channel && f.agentNo.trim() && !CHANNEL_AGENT_NO.test(f.agentNo.trim()) ? "An agent no. is A- and 3 to 6 digits, such as A-4471, or leave it empty."
     : null;
   const touched = Object.values(f).some((v) => v.trim());
   const submit = async () => {
@@ -293,12 +319,15 @@ function RegisterAgentModal({ onClose, onDone }: { onClose: () => void; onDone: 
       }
     >
       <div className="grid gap-3">
-        <p className="text-[12.5px] text-text-soft">The float starts at 0; top it up from the agent's page.</p>
+        <p className="text-[12.5px] text-text-soft">
+          The float starts at 0; top it up from the agent's page.
+          {channel && " The starter PIN goes by SMS to this phone, and the agent app asks for a new PIN at first sign-in."}
+        </p>
         {field("fullName", "Full name")}
         {field("phone", "Phone", { inputMode: "tel", placeholder: "07XXXXXXXX" })}
         {field("town", "Town")}
         {field("floatLimit", "Float limit (KES)", { inputMode: "decimal" })}
-        {field("agentNo", "Agent no. (optional)", { placeholder: "Given if left empty" })}
+        {field("agentNo", "Agent no. (optional)", { placeholder: channel ? "A-4471, or given if left empty" : "Given if left empty" })}
         {touched && problem && <p className="text-[12.5px] text-text-soft" data-testid="form-problem">{problem}</p>}
         {act.error && (act.error === AGENTS_NOT_AVAILABLE ? <NotAvailable /> : <p role="alert" className="text-[13px] text-danger">{act.error}</p>)}
       </div>
@@ -338,6 +367,9 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
               <DetailItem term="Onboarded (month)">{units(a.onboardedThisMonth)}</DetailItem>
               <DetailItem term="Commission (month)">{money(a.commissionThisMonth, "KES")}</DetailItem>
               <DetailItem term="Registered">{calendarDate(a.createdAt)}</DetailItem>
+              {a.source === "channel" && (
+                <DetailItem term="Agent app">{a.mustChangePin ? "Starter PIN not changed yet" : "Own PIN set"}</DetailItem>
+              )}
             </dl>
           </div>
           {a.suspension && (
@@ -353,12 +385,18 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
           ) : (
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
               <TopUpForm agentNo={a.agentNo} onDone={(amount) => after(`Float topped up by ${money(amount, "KES")}.`)} />
-              <RecordActivityForm agentNo={a.agentNo} onDone={(type) => after(`${ACTIVITY_LABEL[type]} recorded.`)} />
+              {a.source === "channel"
+                ? <p className="self-start rounded-[var(--radius-lg)] border border-border p-3 text-[12.5px] text-text-soft" data-testid="recorded-in-app">{RECORDED_IN_APP}</p>
+                : <RecordActivityForm agentNo={a.agentNo} onDone={(type) => after(`${ACTIVITY_LABEL[type]} recorded.`)} />}
             </div>
           )}
 
           <h3 className="mb-2 text-sm font-semibold text-text">Activities</h3>
-          {activities.error ? <SourceError what="the activities" error={activities.error} onRetry={activities.reload} /> : !activities.data ? <Skeleton className="h-24" /> : activities.data.items.length === 0 ? (
+          {a.source === "channel" ? (
+            <p className="rounded-[var(--radius-lg)] border border-border p-4 text-center text-[12.5px] text-text-soft" data-testid="activities-in-app">
+              This agent's activity is in the agent app; it is not listed here yet.
+            </p>
+          ) : activities.error ? <SourceError what="the activities" error={activities.error} onRetry={activities.reload} /> : !activities.data ? <Skeleton className="h-24" /> : activities.data.items.length === 0 ? (
             <p className="rounded-[var(--radius-lg)] border border-border p-4 text-center text-[12.5px] text-text-soft" data-testid="activities-empty">Nothing recorded yet.</p>
           ) : (
             <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-border">
@@ -388,7 +426,7 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
               </table>
             </div>
           )}
-          {activities.data && activities.data.pages > 1 && (
+          {a.source !== "channel" && activities.data && activities.data.pages > 1 && (
             <div className="mt-2 flex justify-end gap-2">
               <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
               <Button size="sm" variant="outline" disabled={page >= activities.data.pages} onClick={() => setPage(page + 1)}>Next</Button>

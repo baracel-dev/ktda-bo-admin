@@ -123,6 +123,17 @@ export type Agent = {
   suspension: { reason: string; at: string; by: string } | null;
   createdAt: string;
   updatedAt: string | null;
+  /* Only on a channel agent (/ktda/agents): */
+  /** "channel" for an agent on the KTDA channel-api, the one the agent app signs in to. */
+  source?: "channel";
+  /** True while the agent has not yet replaced the starter PIN. */
+  mustChangePin?: boolean;
+  /** The float wallet's ledger balance (one agent only, when the ledger answered). */
+  ledgerFloat?: number;
+  /** On a register: where the starter PIN went by SMS, masked. */
+  pinSentTo?: string;
+  /** On a register, only where this environment echoes one-time codes (a demo): the starter PIN. */
+  devCode?: string;
 };
 
 /** `active` is every agent not suspended, the low-float ones included;
@@ -130,7 +141,10 @@ export type Agent = {
 export type AgentsSummary = { active: number; lowFloat: number; suspended: number; onboardedThisMonth: number; commissionThisMonth: number };
 
 /** POST /agents (201). agentNo is the institution's own if given (409
- *  AGENT_NO_TAKEN), else generated. The balance starts at 0. */
+ *  AGENT_NO_TAKEN), else generated. The balance starts at 0. On the channel
+ *  (/ktda/agents) agentNo is A- and 3 to 6 digits, and a phone that already
+ *  belongs to an agent is 409 AGENT_PHONE_TAKEN; the starter PIN goes to the
+ *  phone by SMS and the agent app asks for a new one at first sign-in. */
 export type RegisterAgent = { agentNo?: string; fullName: string; phone: string; town: string; floatLimit: number };
 
 /** CASH_IN moves the amount out of the float (409 AGENT_FLOAT_INSUFFICIENT),
@@ -153,6 +167,10 @@ export type AgentActivity = {
 export type TopUp = { amount: number; reference: string };
 
 export const AGENTS_PATH = "/agents";
+/** The KTDA channel-api's agents through omnichannel's passthrough. */
+export const CHANNEL_AGENTS_PATH = "/ktda/agents";
+/** A channel agent number: A- and 3 to 6 digits (the A- may be left off). */
+export const CHANNEL_AGENT_NO = /^(A-)?\d{3,6}$/i;
 export const AGENTS_SUMMARY_PATH = "/agents/summary";
 export const agentPath = (agentNo: string) => `${AGENTS_PATH}/${encodeURIComponent(agentNo)}`;
 

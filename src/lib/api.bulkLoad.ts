@@ -40,9 +40,10 @@ import { institutionApi } from "./api.institution";
 import { BULK_COLUMNS, COLUMNS, NEW_FLOWS, NOT_AVAILABLE, notBuiltYet, type BulkFlow, type OnboardingStatus } from "./journeyContract";
 
 export { BULK_COLUMNS, type BulkFlow };
-/** SUBMITTED: a PAYMENT run waiting for a second operator to release it
- *  (an omnichannel with maker-checker only). */
-export type RunStatus = "SUBMITTED" | "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
+/** SUBMITTED: a PAYMENT run waiting for a second operator to decide it (an
+ *  omnichannel with maker-checker only). REJECTED: the checker turned a
+ *  SUBMITTED run down with a note; terminal, nothing was paid. */
+export type RunStatus = "SUBMITTED" | "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED" | "REJECTED";
 
 export type BulkRun = {
   runId: string;
@@ -77,6 +78,11 @@ export type BulkRun = {
   /** Who released it; never submittedBy (omnichannel answers 403 MAKER_CHECKER). */
   releasedBy?: string | null;
   releasedAt?: string | null;
+  /** Who turned the run down (REJECTED); never submittedBy. */
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  /** The checker's note left on the release or the rejection. */
+  decisionNote?: string | null;
   /** SHA-256 of the uploaded bytes: the same file is not paid twice. */
   fileSha256?: string | null;
 
@@ -290,10 +296,17 @@ export const bulkLoads = {
     if (e instanceof OmniApiError && e.code === ERR.RELEASE_REQUIRED) return omniCall.get<BulkRun>(runPath(runId));
     throw e;
   }),
-  /** A second operator's release of a SUBMITTED payment run, which starts it.
-   *  403 MAKER_CHECKER for the operator who uploaded it; 409 when it is not
-   *  waiting for release. */
-  release: (runId: string) => omniCall.post<BulkRun>(`${runPath(runId)}/release`, {}),
+  /** A second operator's release of a SUBMITTED payment run, which starts it,
+   *  with an optional note. 403 MAKER_CHECKER for the operator who uploaded it;
+   *  409 when it is not waiting for a decision. */
+  release: (runId: string, note?: string | null) =>
+    omniCall.post<BulkRun>(`${runPath(runId)}/release`, note && note.trim() ? { note: note.trim() } : {}),
+  /** A second operator's rejection of a SUBMITTED payment or payout run, with
+   *  their note: the run is turned down (REJECTED) and nothing is paid. 403
+   *  MAKER_CHECKER for the operator who uploaded it; 409 when it is not waiting
+   *  for a decision. */
+  reject: (runId: string, note?: string | null) =>
+    omniCall.post<BulkRun>(`${runPath(runId)}/reject`, note && note.trim() ? { note: note.trim() } : {}),
   /** A SAP pay file's exception report (CSV): every line held, with its rule
    *  code and reason, or paid by BANK or SACCO. 409 for any other run. */
   exceptions: (runId: string): Promise<CsvDownload> => omniCall.download(`${runPath(runId)}/exceptions`, `${runId}-exceptions.csv`),

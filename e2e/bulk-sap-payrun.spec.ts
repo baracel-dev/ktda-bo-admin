@@ -77,6 +77,7 @@ async function stubOmni(page: Page, opts: {
   polls?: Run[];
   recent?: Run[];
   release?: { status: number; body: unknown };
+  reject?: { status: number; body: unknown };
   reconciliation?: Run;
   exceptions?: { status: number; body: string };
   farmersSummary?: Record<string, number>;
@@ -102,6 +103,10 @@ async function stubOmni(page: Page, opts: {
     }
     if (req.method() === "POST" && path === `/${RUN}/release`) {
       const out = opts.release ?? { status: 200, body: run({ status: "RUNNING", releasedBy: OTHER, releasedAt: "2026-11-06T08:05:00Z" }) };
+      return json(route, out.body, out.status);
+    }
+    if (req.method() === "POST" && path === `/${RUN}/reject`) {
+      const out = opts.reject ?? { status: 200, body: run({ status: "REJECTED", rejectedBy: OTHER, rejectedAt: "2026-11-06T08:05:00Z", decisionNote: "Totals do not match the control sheet.", completedAt: "2026-11-06T08:05:00Z" }) };
       return json(route, out.body, out.status);
     }
     if (path === `/${RUN}/exceptions`) {
@@ -305,6 +310,46 @@ test("a second operator opens the submitted run, releases it, and gets the recon
   expect(rel.subject).toBe(OTHER);
   // What omnichannel says it sends to the wallets is what is reconciled against.
   expect(sent.find((s) => s.path === `/${RUN}/reconciliation`)!.query.get("expectedTotal")).toBe("5000.00");
+});
+
+test("the approval summary shows the batch, its total, rows and who submitted it, for the checker to verify", async ({ page }) => {
+  await signInAs(page, "brian@baracel.ae", "Brian Checker");
+  await stubOmni(page, { recent: [run()], polls: [run()] });
+  await page.goto("/bulk/payments");
+  await page.getByRole("row").filter({ hasText: NAME }).click();
+  const summary = page.getByTestId("run-approval").getByTestId("run-summary");
+  await expect(summary).toContainText(RUN);
+  await expect(summary).toContainText("KTDA Holdings");
+  await expect(summary).toContainText("2026-10");
+  await expect(summary).toContainText(NAME);
+  await expect(summary).toContainText("KES 5,000.00");
+  await expect(summary).toContainText("amina@baracel.ae");
+  await expect(summary).toContainText(SAP_SHA.slice(0, 16));
+});
+
+test("a second operator rejects the submitted run with a note, which the run then carries", async ({ page }) => {
+  await signInAs(page, "brian@baracel.ae", "Brian Checker");
+  // Polling stays SUBMITTED; the rejection comes from the POST /reject response, not a poll.
+  const sent = await stubOmni(page, { recent: [run()], polls: [run()] });
+  await page.goto("/bulk/payments");
+  await page.getByRole("row").filter({ hasText: NAME }).click();
+
+  const approval = page.getByTestId("run-approval");
+  const reject = approval.getByTestId("reject-button");
+  // A rejection needs a note first.
+  await expect(reject).toBeDisabled();
+  await approval.getByTestId("decision-note-input").fill("Totals do not match the control sheet.");
+  await expect(reject).toBeEnabled();
+  await reject.click();
+
+  await expect(approval.getByTestId("approval-rejected")).toContainText("brian@baracel.ae");
+  await expect(approval.getByTestId("decision-note")).toContainText("Totals do not match the control sheet.");
+  // Rejected is terminal: nothing ran, so there is no Result step and no release.
+  await expect(page.getByTestId("step-4")).toHaveCount(0);
+  const rej = sent.find((s) => s.method === "POST" && s.path === `/${RUN}/reject`)!;
+  expect(rej.subject).toBe(OTHER);
+  expect(JSON.parse(rej.body ?? "{}").note).toBe("Totals do not match the control sheet.");
+  expect(sent.some((s) => s.path === `/${RUN}/release`)).toBe(false);
 });
 
 test("omnichannel's 403 MAKER_CHECKER on a release is shown as it comes", async ({ page }) => {

@@ -64,7 +64,7 @@ export function sizeBlocker(file: File | null, limitMb: number): string | null {
 /** Subjects every caller shares when a proxy cannot name the operator. */
 export const SHARED_SUBJECTS = new Set(["ktda-operator", "dev-operator"]);
 
-/** Why `me` may not release this run, or null when they may. */
+/** Why `me` may not decide (release or reject) this run, or null when they may. */
 export function releaseBlocker(run: BulkRun, me: string | null): string | null {
   if (run.status !== "SUBMITTED") return null;
   if (!me) return "Sign in to release this run.";

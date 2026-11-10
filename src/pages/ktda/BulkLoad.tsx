@@ -60,7 +60,7 @@ import {
 const POLL_MS = 1000;
 /** A SUBMITTED run waits for a person, so it is read less often. */
 const WAIT_POLL_MS = 3000;
-const TERMINAL = new Set(["COMPLETED", "PARTIAL", "FAILED"]);
+const TERMINAL = new Set(["COMPLETED", "PARTIAL", "FAILED", "REJECTED"]);
 
 const COPY: Record<BulkFlow, { title: string; subtitle: string; processed: string; other: { label: string; to: string } }> = {
   ONBOARDING: {
@@ -215,6 +215,13 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
     setNoRecon(null);
     void history.reload();
     if (gateKey) void reloadGate();
+    // A rejected run was turned down before anything moved, so there is nothing to reconcile.
+    if (run?.status === "REJECTED") {
+      setNoRecon("The run was rejected, so nothing was paid and there is nothing to reconcile.");
+      return () => {
+        stopped = true;
+      };
+    }
     if (!HAS_RECONCILIATION[flow]) {
       setNoRecon("A registration run posts nothing to the ledger, so it has no reconciliation.");
       // Farmers whose phone is already another farmer's are held as CLASH.
@@ -264,7 +271,8 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
     }
   });
   const process = useAction((runId: string) => bulkLoads.process(runId));
-  const release = useAction((runId: string) => bulkLoads.release(runId));
+  const release = useAction((runId: string, note?: string) => bulkLoads.release(runId, note));
+  const reject = useAction((runId: string, note: string) => bulkLoads.reject(runId, note));
 
   // The file picked last: a slower read of an earlier pick must not land on it.
   const picked = useRef<File | null>(null);
@@ -341,12 +349,20 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
     await startProcess(staged.runId);
   };
 
-  const onRelease = async () => {
+  const onRelease = async (note?: string) => {
     if (!run) return;
-    const r = await release.run(run.runId);
+    const r = await release.run(run.runId, note);
     if (!r) return;
     setRun(r);
     setStarted(true);
+    void history.reload();
+  };
+
+  const onReject = async (note: string) => {
+    if (!run) return;
+    const r = await reject.run(run.runId, note);
+    if (!r) return;
+    setRun(r);
     void history.reload();
   };
 
@@ -551,14 +567,23 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
           </div>
         )}
         {run && hasApproval(run) && (
-          <RunApproval run={run} me={me} pending={release.pending} error={release.error} onRelease={() => void onRelease()} />
+          <RunApproval
+            run={run}
+            me={me}
+            institutionName={run.institutionName ?? nameOf(run.institutionId)}
+            releasing={release.pending}
+            rejecting={reject.pending}
+            error={release.error ?? reject.error}
+            onRelease={(note) => void onRelease(note)}
+            onReject={(note) => void onReject(note)}
+          />
         )}
         {run && payout && waiting && <PayoutRows run={run} />}
         {run && !sapNotTaken && !waiting && <Progress run={run} seenAt={seenAt} processedLabel={copy.processed} skippedHint={stepFor(flow)?.skipped ?? (payout ? "Paid already" : "Already applied")} />}
         {run && !TERMINAL.has(run.status) && !sapNotTaken && <RunChecks runId={run.runId} checks={run} currency={run.currency} />}
       </Step>
 
-      {run && TERMINAL.has(run.status) && (
+      {run && TERMINAL.has(run.status) && run.status !== "REJECTED" && (
         <Step n={4} title="Result" className="mb-6">
           {payout ? <PayoutOutcomeNote run={run} /> : <Outcome run={run} />}
           {run.completedAt && (
@@ -687,7 +712,9 @@ function FileHelp({ flow }: { flow: BulkFlow }) {
 
 /** SUBMITTED reads as what it means here: waiting for a second operator. */
 function RunBadge({ status }: { status: string }) {
-  return status === "SUBMITTED" ? <Badge tone="warning" className="whitespace-nowrap">Awaiting release</Badge> : <StatusBadge status={status} />;
+  if (status === "SUBMITTED") return <Badge tone="warning" className="whitespace-nowrap">Awaiting release</Badge>;
+  if (status === "REJECTED") return <Badge tone="danger" className="whitespace-nowrap">Rejected</Badge>;
+  return <StatusBadge status={status} />;
 }
 
 function Progress({ run, seenAt, processedLabel, skippedHint }: { run: BulkRun; seenAt: number; processedLabel: string; skippedHint: string }) {

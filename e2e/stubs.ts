@@ -34,3 +34,23 @@ export async function stubOfferings(page: Page) {
     { assetId: "asset-b", name: "FXD1/2024/10" },
   ]));
 }
+
+/** The approvals list for one target (?target=&status=REJECTED): `rejected`
+ *  for that target, nothing for any other. Returns the queries sent. */
+export async function stubLastRejection(page: Page, target: string, rejected: Record<string, unknown> | null) {
+  const asked: URLSearchParams[] = [];
+  await page.route(/\/omni\/api\/operator\/approvals\?/, (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    asked.push(q);
+    const items = rejected && q.get("target") === target && q.get("status") === "REJECTED" ? [rejected] : [];
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Total-Count": String(items.length), "X-Page": "1", "X-Size": "1", "X-Total-Pages": "1" }, body: JSON.stringify(items) });
+  });
+  return asked;
+}
+
+/** A rejected approval request for a target. */
+export const rejectedRequest = (reference: string, target: { kind: string; reference: string; name: string | null }, title: string, note: string) => ({
+  id: `id-${reference}`, reference, type: "MERCHANT_UPDATE", title, target, changes: [], reason: null, payload: {}, status: "REJECTED",
+  maker: "staff:maker@ktda.test", madeAt: "2026-11-08T09:00:00Z", checker: "staff:checker@ktda.test", decidedAt: "2026-11-08T11:30:00Z",
+  decisionNote: note, appliedAt: null, error: null, checkerRoles: ["ADMIN"], resubmitOf: null,
+});

@@ -6,9 +6,10 @@ import { useAction } from "../lib/tokenConsole/useAction";
 import { dateTime, label, units } from "../lib/tokenConsole/format";
 import { approvalsApi, APPROVALS_NOT_AVAILABLE } from "../lib/api.approvals";
 import {
-  APPROVAL_STATUS_LABEL, APPROVAL_STATUS_TONE, APPROVAL_TYPE_LABEL, DECIDED_STATUSES, REASON_MAX, targetLink,
+  APPROVAL_STATUS_LABEL, APPROVAL_STATUS_TONE, APPROVAL_TYPE_LABEL, DECIDED_STATUSES, REASON_MAX, RESUBMITTABLE, approvalLink, targetLink, targetPhrase,
   type ApprovalStatus, type ApprovalType,
 } from "../lib/approvalsContract";
+import { ApprovalDetailsSection } from "../components/ApprovalDetails";
 import { SourceError } from "../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../components/tokenconsole/DetailItem";
 import { ErrorWithApproval } from "../components/ApprovalNotice";
@@ -21,11 +22,19 @@ import { ErrorWithApproval } from "../components/ApprovalNotice";
    until a checker approves it, which replays it, or rejects it with a note.
    Omnichannel decides who may check (on UAT the maker may approve their own,
    one demo user), so the page shows who made a request and never blocks the
-   maker. Linkable as ?open=AP-10001. */
+   maker. Linkable as ?open=AP-10001.
+
+   v2: the drawer shows the target as it stands now (Details), and after a
+   rejection the note, what happens now, and Resubmit. "My requests" lists
+   the signed-in staff member's own (mine=true), and a banner counts their
+   rejections of the last 7 days. */
 
 const SIZE = 20;
-type Tab = "MINE" | "PENDING" | "DECIDED";
-const TABS: Tab[] = ["MINE", "PENDING", "DECIDED"];
+/** MINE is "Waiting on me" (kept for old links); BYME is "My requests". */
+type Tab = "MINE" | "PENDING" | "DECIDED" | "BYME";
+const TABS: Tab[] = ["MINE", "PENDING", "DECIDED", "BYME"];
+const ALL_STATUSES: ApprovalStatus[] = ["PENDING", ...DECIDED_STATUSES];
+const isStatus = (v: string | null): v is ApprovalStatus => !!v && (ALL_STATUSES as string[]).includes(v);
 const isTab = (v: string | null): v is Tab => !!v && (TABS as string[]).includes(v);
 const isDecided = (v: string | null): v is Exclude<ApprovalStatus, "PENDING"> => !!v && (DECIDED_STATUSES as string[]).includes(v);
 const TYPE_OPTIONS = (Object.keys(APPROVAL_TYPE_LABEL) as ApprovalType[]).map((t) => ({ value: t, label: APPROVAL_TYPE_LABEL[t] }));
@@ -51,6 +60,7 @@ export default function Approvals() {
   const [params, setParams] = useSearchParams();
   const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "MINE";
   const decided = isDecided(params.get("status")) ? (params.get("status") as Exclude<ApprovalStatus, "PENDING">) : "APPROVED";
+  const mineStatus: ApprovalStatus = isStatus(params.get("status")) ? (params.get("status") as ApprovalStatus) : "PENDING";
   const type = isType(params.get("type")) ? (params.get("type") as ApprovalType) : null;
   const page = Math.max(1, Number(params.get("page")) || 1);
   const open = params.get("open");
@@ -74,10 +84,11 @@ export default function Approvals() {
     }, { replace: true });
   };
 
-  const status: ApprovalStatus = tab === "DECIDED" ? decided : "PENDING";
-  const list = useAsyncData(() => approvalsApi.list({ status, type, page, size: SIZE }));
+  const status: ApprovalStatus = tab === "DECIDED" ? decided : tab === "BYME" ? mineStatus : "PENDING";
+  const mine = tab === "BYME";
+  const list = useAsyncData(() => approvalsApi.list({ status, type, mine, page, size: SIZE }));
   const { reload } = list;
-  useEffect(() => { void reload(); }, [status, type, page, reload]);
+  useEffect(() => { void reload(); }, [status, type, mine, page, reload]);
   const summary = useAsyncData(() => approvalsApi.summary());
   const refresh = () => { void list.reload(); void summary.reload(); };
 
@@ -96,6 +107,14 @@ export default function Approvals() {
       {list.error ? <SourceError what="the approvals" error={list.error} onRetry={list.reload} /> : unavailable ? <NotAvailable /> : (
         <>
           {summary.error && <SourceError what="the approval counts" error={summary.error} onRetry={summary.reload} />}
+          {!!s?.mineRejected && (
+            <div className="mb-4" data-testid="mine-rejected-banner">
+              <NotePanel tone="warning">
+                {units(s.mineRejected)} of your requests {s.mineRejected === 1 ? "was" : "were"} rejected in the last 7 days.{" "}
+                <Link to="/approvals?tab=BYME&status=REJECTED" className="font-medium text-primary-600 hover:underline">See them in My requests</Link>
+              </NotePanel>
+            </div>
+          )}
           <Tabs
             className="mb-4"
             active={tab}
@@ -104,6 +123,7 @@ export default function Approvals() {
               { key: "MINE", label: "Waiting on me", count: s?.pending },
               { key: "PENDING", label: "All pending", count: s?.pending },
               { key: "DECIDED", label: "Decided" },
+              { key: "BYME", label: "My requests", count: s?.minePending },
             ]}
           />
           <FilterBar>
@@ -113,13 +133,21 @@ export default function Approvals() {
                 {DECIDED_STATUSES.map((st) => <option key={st} value={st}>{APPROVAL_STATUS_LABEL[st]}</option>)}
               </Select>
             )}
+            {tab === "BYME" && (
+              <Select aria-label="Status" value={mineStatus} onChange={(e) => set({ status: e.target.value })} className="w-40">
+                {ALL_STATUSES.map((st) => <option key={st} value={st}>{APPROVAL_STATUS_LABEL[st]}</option>)}
+              </Select>
+            )}
+            {tab === "BYME" && <span className="text-[12.5px] text-text-soft">The requests you made.</span>}
             {tab === "MINE" && <span className="text-[12.5px] text-text-soft">Every request still waiting: omnichannel decides who may check.</span>}
             {tab === "DECIDED" && s && <span className="text-[12.5px] text-text-soft">{units(s.decidedToday)} decided today.</span>}
           </FilterBar>
 
           {!data ? <Skeleton className="h-48" /> : data.items.length === 0 ? (
             <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="approvals-empty">
-              {tab === "DECIDED" ? `Nothing ${APPROVAL_STATUS_LABEL[decided].toLowerCase()}.` : "Nothing is waiting for a second person."}
+              {tab === "DECIDED" ? `Nothing ${APPROVAL_STATUS_LABEL[decided].toLowerCase()}.`
+                : tab === "BYME" ? (mineStatus === "PENDING" ? "None of your requests is waiting." : `None of your requests is ${APPROVAL_STATUS_LABEL[mineStatus].toLowerCase()}.`)
+                : "Nothing is waiting for a second person."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-border">
@@ -143,6 +171,14 @@ export default function Approvals() {
                           <div>
                             <div className="font-medium text-text">{a.title}</div>
                             <div className="font-mono text-[12px] text-text-soft">{a.reference}</div>
+                            {a.resubmitOf && (
+                              <a
+                                href={approvalLink(a.resubmitOf)}
+                                className="text-[12px] text-primary-600 hover:underline"
+                                data-testid="row-resubmit-of"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); set({ open: a.resubmitOf }); }}
+                              >Asked again after {a.resubmitOf}</a>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -170,12 +206,12 @@ export default function Approvals() {
         </>
       )}
 
-      {open && <ApprovalDrawer key={open} reference={open} onClose={() => set({ open: null })} onChanged={refresh} />}
+      {open && <ApprovalDrawer key={open} reference={open} onClose={() => set({ open: null })} onChanged={refresh} onOpen={(ref) => set({ open: ref })} />}
     </div>
   );
 }
 
-function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; onClose: () => void; onChanged: () => void }) {
+function ApprovalDrawer({ reference, onClose, onChanged, onOpen }: { reference: string; onClose: () => void; onChanged: () => void; onOpen: (reference: string) => void }) {
   const toast = useToast();
   const approval = useAsyncData(() => approvalsApi.one(reference));
   const a = approval.data;
@@ -195,6 +231,22 @@ function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; 
     }
     onChanged();
   };
+  const [again, setAgain] = useState("");
+  const [asking, setAsking] = useState(false);
+  const resubmit = async () => {
+    setAsking(true);
+    try {
+      const next = await approvalsApi.resubmit(reference, again);
+      toast.push(`Asked again as ${next.reference}.`);
+      onChanged();
+      onOpen(next.reference);
+    } catch (e) {
+      // 409: another request for the target is open (named), or this one was approved.
+      toast.push(e instanceof Error ? e.message : "Something went wrong", "error");
+    } finally {
+      setAsking(false);
+    }
+  };
 
   return (
     <Modal open onClose={onClose} title={a?.title ?? reference} size="lg">
@@ -206,6 +258,14 @@ function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; 
             <Badge tone="neutral">{APPROVAL_TYPE_LABEL[a.type] ?? label(a.type)}</Badge>
             <span className="font-mono text-text">{a.reference}</span>
             <Badge tone={APPROVAL_STATUS_TONE[a.status] ?? "neutral"}>{APPROVAL_STATUS_LABEL[a.status] ?? a.status}</Badge>
+            {a.resubmitOf && (
+              <a
+                href={approvalLink(a.resubmitOf)}
+                className="text-primary-600 hover:underline"
+                data-testid="approval-resubmit-of"
+                onClick={(e) => { e.preventDefault(); onOpen(a.resubmitOf!); }}
+              >Asked again after {a.resubmitOf}</a>
+            )}
           </div>
 
           {a.reason && <p className="mb-4 rounded-md border border-border bg-surface-sunken px-3 py-2 text-[13px] text-text" data-testid="approval-reason">{a.reason}</p>}
@@ -220,6 +280,8 @@ function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; 
             </DetailItem>
             <DetailItem term="Who can decide">{a.checkerRoles.length ? a.checkerRoles.map((r) => label(r)).join(", ") : "—"}</DetailItem>
           </dl>
+
+          <ApprovalDetailsSection approval={a} />
 
           {a.changes.length > 0 && (
             <div className="mb-4 overflow-x-auto rounded-[var(--radius-lg)] border border-border">
@@ -242,11 +304,30 @@ function ApprovalDrawer({ reference, onClose, onChanged }: { reference: string; 
 
           {a.status !== "PENDING" && (
             <div className="mb-4 text-[12.5px] text-text-soft" data-testid="approval-outcome">
+              {/* The checker's note first: after a rejection it is what the maker has to act on. */}
+              {a.decisionNote && (
+                <p className={`mb-2 rounded-md border px-3 py-2 text-[13px] text-text ${a.status === "APPROVED" ? "border-border bg-surface-sunken" : "border-danger/40 bg-danger-bg"}`} data-testid="approval-note">
+                  Note: {a.decisionNote}
+                </p>
+              )}
               {a.status === "CANCELLED" ? "Cancelled by the requester" : `${APPROVAL_STATUS_LABEL[a.status]}${a.checker ? ` by ${a.checker}` : ""}`}
               {a.decidedAt ? `, ${dateTime(a.decidedAt)}` : ""}.
-              {a.decisionNote && <span className="block text-text">Note: {a.decisionNote}</span>}
               {a.status === "FAILED" && a.error && <span className="mt-1 block text-danger" data-testid="approval-error">It could not be applied: {a.error}</span>}
               {a.appliedAt && <span className="block">Applied {dateTime(a.appliedAt)}.</span>}
+            </div>
+          )}
+
+          {RESUBMITTABLE.includes(a.status) && (
+            <div className="border-t border-border pt-4" data-testid="resubmit">
+              <p className="mb-3 text-[13px] text-text" data-testid="what-now">
+                Nothing was changed on {targetPhrase(a.target, a.type)}. Fix what the note asks and ask again, or leave it.
+              </p>
+              <Field label="New reason" hint={a.reason ? `Optional. Left empty, the request keeps its reason: ${a.reason}` : "Optional. Shown to whoever approves it."}>
+                <Textarea rows={2} aria-label="New reason" value={again} maxLength={REASON_MAX} onChange={(e) => setAgain(e.target.value)} />
+              </Field>
+              <div className="mt-3">
+                <Button disabled={asking} onClick={() => void resubmit()}>{asking ? "Asking again…" : "Resubmit"}</Button>
+              </div>
             </div>
           )}
 

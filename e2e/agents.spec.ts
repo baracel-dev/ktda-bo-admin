@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { envelope, json, signIn } from "./stubs";
+import { envelope, json, rejectedRequest, signIn, stubLastRejection } from "./stubs";
 
 /* Agents (prototype 3.9) on omnichannel's /agents (merchantsAgentsContract.ts):
  * tiles, tabs with counts, search, the float bar, suspend with a reason,
@@ -231,4 +231,14 @@ test("an agent number that is not this institution's", async ({ page }) => {
   await stub(page, { one: null });
   await page.goto("/agents?focus=A-9999");
   await expect(page.getByTestId("agent-not-found")).toContainText("No agent A-9999");
+});
+
+test("the agent drawer shows the last refused change with the checker's note", async ({ page }) => {
+  await stub(page);
+  await stubLastRejection(page, "A-0042", { ...rejectedRequest("AP-10018", { kind: "AGENT", reference: "A-0042", name: "Test Agent One" }, "Top up float of agent A-0042 by KES 50,000.00", "The bank slip is for another agent."), type: "AGENT_FLOAT_TOP_UP" });
+  await page.goto("/agents?focus=A-0042");
+  const drawer = page.getByTestId("agent-drawer");
+  await expect(drawer.getByTestId("last-rejection")).toContainText("Last change refused: Top up float of agent A-0042");
+  await expect(drawer.getByTestId("last-rejection-note")).toHaveText("The bank slip is for another agent.");
+  await expect(drawer.getByTestId("last-rejection-link")).toHaveAttribute("href", "/approvals?open=AP-10018");
 });

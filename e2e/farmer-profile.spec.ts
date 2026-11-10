@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { envelope, json, signIn } from "./stubs";
+import { envelope, json, rejectedRequest, signIn, stubLastRejection } from "./stubs";
 
 /* A farmer's profile and wallet (FarmerDetail), all from omnichannel:
  * GET /farmers/{growerNo}, /farmers/{growerNo}/wallet and
@@ -139,4 +139,27 @@ test("a row in the farmers list opens that farmer's profile", async ({ page }) =
   await page.getByTestId("farmers-table").getByText("Test Factory A").click();
   await expect(page).toHaveURL(/\/farmers\/TEST000001$/);
   await expect(page.getByTestId("wallet-available")).toBeVisible();
+});
+
+test("the last refused change for the farmer shows with the checker's note and a link to it", async ({ page }) => {
+  await stub(page);
+  const asked = await stubLastRejection(page, "TEST000001", { ...rejectedRequest("AP-10012", { kind: "FARMER", reference: "TEST000001", name: "Test Farmer One" }, "Verify farmer TEST000001 despite registry MISMATCH", "The ID photo is not readable."), type: "FARMER_KYC_OVERRIDE" });
+  await page.goto("/farmers/TEST000001");
+  const note = page.getByTestId("last-rejection");
+  await expect(note).toContainText("Last change refused: Verify farmer TEST000001 despite registry MISMATCH");
+  await expect(note).toContainText("staff:checker@ktda.test rejected it");
+  await expect(page.getByTestId("last-rejection-note")).toHaveText("The ID photo is not readable.");
+  await expect(page.getByTestId("last-rejection-link")).toHaveAttribute("href", "/approvals?open=AP-10012");
+  const q = asked.find((x) => x.get("target") === "TEST000001")!;
+  expect(q.get("status")).toBe("REJECTED");
+  expect(q.get("size")).toBe("1");
+});
+
+test("no note when nothing for the farmer was refused", async ({ page }) => {
+  await stub(page);
+  const asked = await stubLastRejection(page, "TEST000001", null);
+  await page.goto("/farmers/TEST000001");
+  await expect(page.getByTestId("farmer-details")).toBeVisible();
+  await expect.poll(() => asked.length).toBeGreaterThan(0);
+  await expect(page.getByTestId("last-rejection")).toHaveCount(0);
 });

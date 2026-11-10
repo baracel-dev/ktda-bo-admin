@@ -386,7 +386,7 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
               <TopUpForm agentNo={a.agentNo} onDone={(amount) => after(`Float topped up by ${money(amount, "KES")}.`)} />
               {a.source === "channel"
-                ? <p className="rounded-[var(--radius-lg)] border border-border p-3 text-[12.5px] text-text-soft" data-testid="recorded-in-app">{RECORDED_IN_APP}</p>
+                ? <p className="self-start rounded-[var(--radius-lg)] border border-border p-3 text-[12.5px] text-text-soft" data-testid="recorded-in-app">{RECORDED_IN_APP}</p>
                 : <RecordActivityForm agentNo={a.agentNo} onDone={(type) => after(`${ACTIVITY_LABEL[type]} recorded.`)} />}
             </div>
           )}

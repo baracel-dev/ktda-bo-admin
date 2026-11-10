@@ -4,6 +4,7 @@ import { AuthLayout, Button, Field, Input, Select } from "../ui";
 import { ShieldCheck, ClipboardCheck, Lock } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { TokApiError } from "../lib/tokApi";
+import { StaffDisabledError } from "../lib/staffContract";
 import { PENDING_APPROVAL_HINT, type SelfServiceRole } from "../lib/tokenConsole/spec-deviations";
 
 const BULLETS = [
@@ -22,7 +23,7 @@ const SIGNUP_ROLES: { value: SelfServiceRole; label: string }[] = [
 ];
 
 function messageOf(err: unknown, fallback: string) {
-  return err instanceof TokApiError ? err.message : fallback;
+  return err instanceof TokApiError || err instanceof StaffDisabledError ? err.message : fallback;
 }
 
 /** Sign-in with a tokenization account (the staff accounts tokenization-web
@@ -57,7 +58,7 @@ export default function Login() {
 }
 
 function SignInForm({ notice, onSignup }: { notice: string | null; onSignup: () => void }) {
-  const { login } = useAuth();
+  const { login, signedOutReason } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -101,6 +102,8 @@ function SignInForm({ notice, onSignup }: { notice: string | null; onSignup: () 
           <Input type="password" value={password} autoComplete="current-password" required onChange={(e) => setPassword(e.target.value)} />
         </Field>
 
+        {/* The directory refused a session that was already open (a disabled member). */}
+        {!error && signedOutReason && <p role="alert" className="text-sm text-danger" data-testid="signed-out-reason">{signedOutReason}</p>}
         {error && (
           <p role="alert" className={pending ? "text-sm text-warning" : "text-sm text-danger"}>
             {error}

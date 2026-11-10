@@ -14,7 +14,10 @@ import { SHARED_SUBJECTS, releaseBlocker } from "./rules";
 
 const NOTE_LIMIT = 500;
 
-export function RunApproval({ run, me, institutionName, releasing, rejecting, error, onRelease, onReject }: {
+/** Shown in place of the buttons' reason when the member's roles lack the key. */
+const NOT_YOURS = "Your roles do not allow releasing or rejecting this run. An administrator can change that on Users & roles.";
+
+export function RunApproval({ run, me, institutionName, releasing, rejecting, error, onRelease, onReject, mayDecide = true }: {
   run: BulkRun;
   me: string | null;
   /** The institution's name, resolved by the page (omnichannel does not send it on the run). */
@@ -24,11 +27,13 @@ export function RunApproval({ run, me, institutionName, releasing, rejecting, er
   error: string | null;
   onRelease: (note?: string) => void;
   onReject: (note: string) => void;
+  /** The staff directory's act:payouts.release (a payout) or act:bulk.run. */
+  mayDecide?: boolean;
 }) {
   const [note, setNote] = useState("");
   const waiting = run.status === "SUBMITTED";
   const rejected = run.status === "REJECTED";
-  const blocker = releaseBlocker(run, me);
+  const blocker = mayDecide ? releaseBlocker(run, me) : NOT_YOURS;
   const shared = !!run.submittedBy && SHARED_SUBJECTS.has(run.submittedBy);
   const busy = releasing || rejecting;
   const payout = run.flow === "PAYOUT";

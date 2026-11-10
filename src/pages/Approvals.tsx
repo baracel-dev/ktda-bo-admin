@@ -10,6 +10,9 @@ import {
   type ApprovalStatus, type ApprovalType,
 } from "../lib/approvalsContract";
 import { ApprovalDetailsSection } from "../components/ApprovalDetails";
+import { NoPermission } from "../components/Allowed";
+import { useAuth } from "../lib/auth";
+import { ACT } from "../lib/staffContract";
 import { SourceError } from "../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../components/tokenconsole/DetailItem";
 import { ErrorWithApproval } from "../components/ApprovalNotice";
@@ -213,6 +216,7 @@ export default function Approvals() {
 
 function ApprovalDrawer({ reference, onClose, onChanged, onOpen }: { reference: string; onClose: () => void; onChanged: () => void; onOpen: (reference: string) => void }) {
   const toast = useToast();
+  const mayDecide = useAuth().can(ACT.approvalsDecide);
   const approval = useAsyncData(() => approvalsApi.one(reference));
   const a = approval.data;
   const [note, setNote] = useState("");
@@ -339,8 +343,9 @@ function ApprovalDrawer({ reference, onClose, onChanged, onOpen }: { reference: 
               {act.error && act.error !== APPROVALS_NOT_AVAILABLE && <ErrorWithApproval message={act.error} className="mt-3 text-[13px] text-danger" />}
               {act.error === APPROVALS_NOT_AVAILABLE && <NotePanel tone="info" className="mt-3">{APPROVALS_NOT_AVAILABLE}</NotePanel>}
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <Button variant="outline" disabled={act.pending || !note.trim()} onClick={() => void run("reject")}>Reject</Button>
-                <Button disabled={act.pending} onClick={() => void run("approve")}>Approve</Button>
+                {mayDecide && <Button variant="outline" disabled={act.pending || !note.trim()} onClick={() => void run("reject")}>Reject</Button>}
+                {mayDecide && <Button disabled={act.pending} onClick={() => void run("approve")}>Approve</Button>}
+                {!mayDecide && <NoPermission />}
                 <span className="flex-1" />
                 <Button variant="ghost" size="sm" disabled={act.pending} onClick={() => void run("cancel")} title="Only the person who asked can cancel">Cancel request</Button>
               </div>

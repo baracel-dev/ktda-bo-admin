@@ -13,6 +13,9 @@ import {
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
 import { ErrorWithApproval, LastRejection, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { NoPermission } from "../../components/Allowed";
+import { useAuth } from "../../lib/auth";
+import { ACT } from "../../lib/staffContract";
 import { withReason } from "../../lib/api.approvals";
 import { REASON_MAX, type Approval } from "../../lib/approvalsContract";
 
@@ -68,6 +71,7 @@ function FloatBar({ agent }: { agent: Agent }) {
 }
 
 export default function Agents() {
+  const manage = useAuth().can(ACT.agentsManage);
   const [params, setParams] = useSearchParams();
   const tab: Tab = isTab(params.get("status")) ? (params.get("status") as Tab) : "ALL";
   const q = params.get("q") ?? "";
@@ -127,7 +131,7 @@ export default function Agents() {
         eyebrow="KTDA"
         title="Agents"
         subtitle="Agents onboard farmers with a camera, upgrade Tier 1 wallets, and handle cash in and cash out."
-        actions={!unavailable && <Button onClick={() => setRegistering(true)}><UserPlus size={14} /> Register agent</Button>}
+        actions={!unavailable && manage && <Button onClick={() => setRegistering(true)}><UserPlus size={14} /> Register agent</Button>}
       />
 
       {list.error ? <SourceError what="the agents" error={list.error} onRetry={list.reload} /> : unavailable ? <NotAvailable /> : (
@@ -184,7 +188,7 @@ export default function Agents() {
                       <td className="px-3 py-2 text-right tabular">{money(a.commissionThisMonth)}</td>
                       <td className="px-3 py-2"><Badge tone={AGENT_STATUS_TONE[a.status] ?? "neutral"}>{AGENT_STATUS_LABEL[a.status] ?? a.status}</Badge></td>
                       <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        {a.status === "SUSPENDED"
+                        {!manage ? null : a.status === "SUSPENDED"
                           ? <Button size="sm" variant="outline" onClick={() => setChanging({ agent: a, action: "reinstate" })}>Reinstate</Button>
                           : <Button size="sm" variant="outline" onClick={() => setSuspending(a)}>Suspend</Button>}
                       </td>
@@ -337,6 +341,7 @@ function RegisterAgentModal({ onClose, onDone }: { onClose: () => void; onDone: 
 
 function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: string; onClose: () => void; onChanged: () => void; onSuspend: (a: Agent) => void }) {
   const toast = useToast();
+  const manage = useAuth().can(ACT.agentsManage);
   const agent = useAsyncData(() => agentsApi.one(agentNo));
   const [page, setPage] = useState(1);
   const activities = useAsyncData(() => agentsApi.activities(agentNo, page));
@@ -383,6 +388,8 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
 
           {a.status === "SUSPENDED" ? (
             <p className="mb-4 text-[12.5px] text-text-soft">A suspended agent's float cannot be topped up and no activity can be recorded for them.</p>
+          ) : !manage ? (
+            <div className="mb-4"><NoPermission /></div>
           ) : (
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
               <TopUpForm agentNo={a.agentNo} onDone={(amount) => after(`Float topped up by ${money(amount, "KES")}.`)} />
@@ -433,7 +440,7 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
               <Button size="sm" variant="outline" disabled={page >= activities.data.pages} onClick={() => setPage(page + 1)}>Next</Button>
             </div>
           )}
-          {a.status !== "SUSPENDED" && (
+          {a.status !== "SUSPENDED" && manage && (
             <div className="mt-5 border-t border-border pt-4">
               <Button size="sm" variant="outline" onClick={() => onSuspend(a)}>Suspend agent</Button>
             </div>

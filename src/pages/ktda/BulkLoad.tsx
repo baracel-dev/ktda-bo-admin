@@ -13,6 +13,8 @@ import {
 import { formatProblem, paymentFormatOf, periodFromName, type PaymentFormat } from "../../lib/sapPaymentFile";
 import { farmersApi } from "../../lib/api.farmers";
 import { useAuth } from "../../lib/auth";
+import { ACT } from "../../lib/staffContract";
+import { NoPermission } from "../../components/Allowed";
 import { omniSubjectFor, staffName } from "../../lib/omniApi";
 import { SapFileCheck } from "./bulk/SapFileCheck";
 import { useControlSheet, useSapCheck } from "./bulk/useSapCheck";
@@ -112,7 +114,8 @@ function institutionProblem(count: number): string | null {
 
 export default function BulkLoad({ flow }: { flow: BulkFlow }) {
   const copy = COPY[flow];
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const mayRun = can(ACT.bulkRun);
   const me = user?.email ? omniSubjectFor(user.email) : null;
   const own = useAsyncData(() => bulkLoads.ownInstitution());
   // The engine's names, for an institution omnichannel has no name for yet.
@@ -399,7 +402,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
   const sapWhy = sizeBlocker(file, MAX_UPLOAD_MB) ?? (format === "SAP" ? sapBlocker(sap.state, control.state, period) : null);
   // While a run waits for its release the file is already in; sending it
   // again would only be refused as the same file.
-  const canProcess = !!institutionId && !!file && !!summary && !summary.problem && !paymentsClosed && !busy && !waiting
+  const canProcess = mayRun && !!institutionId && !!file && !!summary && !summary.problem && !paymentsClosed && !busy && !waiting
     && !upload.pending && !process.pending && !sapWhy;
   // A "same file" refusal names the run that already has it.
   const earlier = upload.error ? earlierRunIn(upload.error) : null;
@@ -534,6 +537,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
           {run && !busy && <Button variant="outline" onClick={startAgain}><FileUp size={14} /> Start another</Button>}
           {run && <span className="tabular text-xs text-text-faint">Run {run.runId}</span>}
         </div>
+        {!mayRun && <NoPermission className="mt-2 text-[12.5px] text-text-soft" />}
         {sapWhy && file && !run && (
           <p id="process-why" className="mt-2 text-[12.5px] text-text-soft" data-testid="process-blocked">{sapWhy}</p>
         )}
@@ -576,6 +580,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
             error={release.error ?? reject.error}
             onRelease={(note) => void onRelease(note)}
             onReject={(note) => void onReject(note)}
+            mayDecide={can(payout ? ACT.payoutsRelease : ACT.bulkRun)}
           />
         )}
         {run && payout && waiting && <PayoutRows run={run} />}

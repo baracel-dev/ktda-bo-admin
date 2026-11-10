@@ -240,3 +240,22 @@ test("the channel-api's merchants: the list, one merchant and its movements are 
     expect(r.upstream, `${method} ${path}`).toBeUndefined();
   }
 });
+
+test("the staff directory: sign-in, members, roles, permissions and the access matrix pass; nothing else under it", async () => {
+  for (const path of ["staff", "staff?status=ACTIVE&q=amina", "staff/me", "staff/roles", "staff/permissions", "staff/access"]) {
+    expect((await call(`/omni/api/operator/${path}`)).res.status, `GET ${path}`).toBe(200);
+  }
+  for (const path of ["staff", "staff/me/sign-in", "staff/5b0c7e2e-1111-4a4a-9d9d-000000000001/status"]) {
+    expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
+  }
+  for (const path of ["staff/5b0c7e2e-1111-4a4a-9d9d-000000000001", "staff/access/COMPLIANCE"]) {
+    const r = await call(`/omni/api/operator/${path}`, { method: "PUT" });
+    expect(r.res.status, `PUT ${path}`).toBe(200);
+    expect(r.upstream?.url).toContain(`/api/operator/${path}`);
+  }
+  for (const [method, path] of [["DELETE", "staff/5b0c7e2e-1111-4a4a-9d9d-000000000001"], ["PUT", "staff"], ["POST", "staff/access/ADMIN"], ["GET", "staff/me/sign-in"], ["PUT", "staff/a/b/c"], ["POST", "staff/me/other"], ["GET", "staff/access/ADMIN/x"]]) {
+    const r = await call(`/omni/api/operator/${path}`, { method });
+    expect(r.res.status, `${method} ${path}`).toBe(404);
+    expect(r.upstream, `${method} ${path}`).toBeUndefined();
+  }
+});

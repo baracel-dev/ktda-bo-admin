@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../../lib/auth";
+import { ACT } from "../../lib/staffContract";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Store } from "lucide-react";
 import { Badge, Button, Checkbox, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, Select, Skeleton, StatCard, Tabs, Textarea } from "../../ui";
@@ -38,6 +40,7 @@ const NotAvailable = () => (
 );
 
 export default function Merchants() {
+  const mayRegister = useAuth().can(ACT.merchantsDecide);
   const [params, setParams] = useSearchParams();
   const tab: Tab = isTab(params.get("status")) ? (params.get("status") as Tab) : "ALL";
   const q = params.get("q") ?? "";
@@ -93,7 +96,7 @@ export default function Merchants() {
         eyebrow="KTDA"
         title="Merchants"
         subtitle="Agro-dealers and shops where farmers spend. Every merchant is checked against the Business Registration Service before they can take payments."
-        actions={!unavailable && <Button onClick={() => setRegistering(true)}><Store size={14} /> Register merchant</Button>}
+        actions={!unavailable && mayRegister && <Button onClick={() => setRegistering(true)}><Store size={14} /> Register merchant</Button>}
       />
 
       {list.error ? <SourceError what="the merchants" error={list.error} onRetry={list.reload} /> : unavailable ? <NotAvailable /> : (

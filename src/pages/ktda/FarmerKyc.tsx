@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ACT } from "../../lib/staffContract";
+import { NoPermission } from "../../components/Allowed";
 import { Link } from "react-router-dom";
 import { BadgeCheck } from "lucide-react";
 import { Badge, Button, Card, Field, Modal, NotePanel, Textarea, useToast } from "../../ui";
@@ -28,8 +30,10 @@ const activated = (f: Farmer) => f.status === "ACTIVATED" || f.status === "FUNDE
 /** `onDesk`: shown on the KYC desk, so no link back to it. */
 export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farmer; onChanged: (f: Farmer) => void; onDesk?: boolean }) {
   const toast = useToast();
-  const { user } = useAuth();
-  const mayDecide = canDecideKyc(user?.tokRoles);
+  const { user, can } = useAuth();
+  const engineMay = canDecideKyc(user?.tokRoles);
+  const allowed = can(ACT.kycDecide);
+  const mayDecide = engineMay && allowed;
   const kyc = farmer.kyc;
   const start = useAction(() => farmersApi.startKyc(farmer.growerNo));
   const [deciding, setDeciding] = useState<KycDecisionBody["decision"] | null>(null);
@@ -73,7 +77,8 @@ export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farme
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {status === "NONE" && (activated(farmer) ? (
+        {status === "NONE" && !allowed && <NoPermission />}
+        {status === "NONE" && allowed && (activated(farmer) ? (
           <Button size="sm" disabled={start.pending} onClick={() => void runStart()}>{start.pending ? "Starting…" : "Start KYC"}</Button>
         ) : (
           <span className="text-[12.5px] text-text-soft">KYC starts once the farmer is activated.</span>
@@ -83,7 +88,7 @@ export function FarmerKyc({ farmer, onChanged, onDesk = false }: { farmer: Farme
             <Button size="sm" onClick={() => setDeciding("VERIFIED")}><BadgeCheck size={14} /> Approve</Button>
             <Button size="sm" variant="outline" onClick={() => setDeciding("REJECTED")}>Reject</Button>
           </>
-        ) : (
+        ) : !allowed ? <NoPermission /> : (
           <span className="text-[12.5px] text-text-soft">Deciding KYC needs the {KYC_DECIDER_ROLES.map((r) => label(r)).join(" or ")} role.</span>
         ))}
         {!onDesk && (

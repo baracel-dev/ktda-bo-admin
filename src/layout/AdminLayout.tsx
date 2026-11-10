@@ -5,16 +5,16 @@ import { useContentField } from "../mock";
 import { useAuth } from "../lib/auth";
 import { navForRole, NAV_DEFS, SECTION_ICONS } from "../lib/navConfig";
 import { useNavBadges } from "../lib/navBadges";
+import { rolesText } from "../lib/staffContract";
 import { isDemoRoute } from "../lib/dataSource";
 import { versionLabel, versionTitle } from "../lib/version";
 import { GlobalSearch } from "../components/GlobalSearch";
 import { ThemeSwitch } from "../components/ThemeSwitch";
 
-// Every signed-in user sees every page (see lib/auth.tsx).
 const ALL_PAGES = NAV_DEFS.map((n) => n.to);
 
 export function AdminLayout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, canAccess } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const badges = useNavBadges();
@@ -25,8 +25,9 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     <AppShell
       appName="KTDA"
       appTag="Back Office"
-      nav={navForRole(ALL_PAGES, badges)}
-      user={{ name: user.name, role: user.tokRoles.join(", ") || "Staff", avatarInitials: user.initials }}
+      // The pages this member's permissions open (every page without a directory; lib/auth.tsx).
+      nav={navForRole(ALL_PAGES.filter((p) => canAccess(p)), badges)}
+      user={{ name: user.name, role: user.staff ? rolesText(user.staff.roles) : user.tokRoles.join(", ") || "Staff", avatarInitials: user.initials }}
       headerStart={<GlobalSearch />}
       headerEnd={<ThemeSwitch />}
       footerNote={

@@ -12,7 +12,7 @@ import {
 } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
-import { ErrorWithApproval, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
+import { ErrorWithApproval, LastRejection, REASON_HINT, SentForApproval } from "../../components/ApprovalNotice";
 import { withReason } from "../../lib/api.approvals";
 import { REASON_MAX, type Approval } from "../../lib/approvalsContract";
 
@@ -360,6 +360,7 @@ function AgentDrawer({ agentNo, onClose, onChanged, onSuspend }: { agentNo: stri
             <span><span className="font-mono text-text">{a.agentNo}</span>{a.town ? ` · ${a.town}` : ""}{a.phone ? ` · ${a.phone}` : ""}</span>
             <Badge tone={AGENT_STATUS_TONE[a.status] ?? "neutral"}>{AGENT_STATUS_LABEL[a.status] ?? a.status}</Badge>
           </div>
+          <LastRejection key={a.agentNo} target={a.agentNo} className="mb-4" />
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-faint">Float</div><FloatBar agent={a} /></div>
             <dl className="grid grid-cols-2 gap-3">

@@ -14,7 +14,18 @@
      commission rate or the till;
    - a merchant decision APPROVED, or REJECTED on an approved one (revoking);
    - a farmer KYC decision VERIFIED when the registry's answer was not MATCH;
-   - a bulk KYC decision, except verifying only the registry's matches. */
+   - a bulk KYC decision, except verifying only the registry's matches.
+
+   v2 (approvals-contract-v2): what the checker sees and the way on after a
+   rejection. GET /{id}/details answers the target as it stands now, per
+   type (phones and ids masked to their last three characters), or null
+   when the target has gone. The list filters target=<reference> and
+   mine=true; the summary adds minePending and mineRejected (the caller's
+   requests rejected or failed in the last 7 days). POST /{id}/resubmit
+   { reason? } asks again after a REJECTED, FAILED or CANCELLED request:
+   202 with the new PENDING request, whose resubmitOf names the earlier one.
+   409 APPROVAL_PENDING while another request for the target is open, 409
+   APPROVAL_DECIDED for an approved one. */
 
 export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE" | "FARMER_KYC_BULK_DECISION"
   /* The same three writes on a KTDA channel agent (/ktda/agents), applied on the channel-api. */
@@ -66,9 +77,63 @@ export type Approval = {
   error: string | null;
   /** Informational: omnichannel does not enforce roles yet. */
   checkerRoles: string[];
+  /** The earlier request this one asks again (v2; absent before). */
+  resubmitOf?: string | null;
 };
 
-export type ApprovalsSummary = { pending: number; decidedToday: number };
+/** minePending and mineRejected arrive with v2. */
+export type ApprovalsSummary = { pending: number; decidedToday: number; minePending?: number; mineRejected?: number };
+
+/* ---- What the checker sees: GET /{id}/details, per type ---- */
+
+export type AgentDetails = {
+  agentNo: string; fullName: string | null; phone: string | null; town: string | null;
+  status: string; floatBalance: number | null; floatLimit: number | null; floatLow: boolean | null;
+  suspensionReason: string | null; suspendedAt: string | null; suspendedBy: string | null; joinedAt: string | null;
+};
+/** A channel agent: the object GET /ktda/agents/{agentNo} answers. */
+export type ChannelAgentDetails = {
+  agentNo: string; fullName: string | null; phone: string | null; town: string | null; status: string;
+  float?: { balance: number | null; limit: number | null; low: boolean | null } | null;
+  today?: { transactions?: number | null } | null;
+  suspension?: { reason: string | null; at: string | null; by: string | null } | null;
+};
+export type MerchantDetails = {
+  reference: string; name: string | null; type: string | null; town: string | null; county: string | null;
+  ownerName: string | null; ownerPhone: string | null; tillNo: string | null; registrationNo: string | null;
+  brsStatus: string | null; brsRegisteredName: string | null; brsRegisteredOwner: string | null; brsCheckedAt: string | null;
+  kybStatus: string | null; kybNote: string | null; kybDecidedAt: string | null;
+  settlementBank: string | null; settlementAccount: string | null; commissionRate: number | null;
+  acceptsVouchers: boolean | null; joinedAt: string | null;
+};
+export type FarmerDetails = {
+  growerNo: string; fullName: string | null; factory: string | null; phone: string | null; nationalId: string | null;
+  state: string | null; kycStatus: string | null; identityResult: string | null; kycStartedAt: string | null;
+  kycNote: string | null; onboardingChannel: string | null; onboardingAgentNo: string | null;
+  activatedAt: string | null; lastFundedAt: string | null;
+};
+export type BulkScope = "ALL_PENDING" | "REGISTRY_MATCH" | "GROWERS";
+export type BulkDecisionDetails = {
+  decision: string; scope: BulkScope; note: string | null;
+  /** How many grower numbers were given (GROWERS only). */
+  listed: number | null;
+  /** How many farmers the selection covers now. */
+  total: number;
+  sampleSize: number;
+  /** The first farmers by grower number. */
+  sample: { growerNo: string; fullName: string | null; factory: string | null; kycStatus: string | null; identityResult: string | null }[];
+};
+
+export type ApprovalDetails = AgentDetails | ChannelAgentDetails | MerchantDetails | FarmerDetails | BulkDecisionDetails;
+
+/** The types /details answers for; any other answers null. */
+export const DETAILED_TYPES: ApprovalType[] = [
+  "AGENT_FLOAT_TOP_UP", "AGENT_SUSPEND", "AGENT_REINSTATE", "KTDA_AGENT_FLOAT_TOP_UP", "KTDA_AGENT_SUSPEND", "KTDA_AGENT_REINSTATE",
+  "MERCHANT_UPDATE", "MERCHANT_DECISION", "FARMER_KYC_OVERRIDE", "FARMER_KYC_BULK_DECISION",
+];
+
+/** Statuses a request can be asked again from. */
+export const RESUBMITTABLE: ApprovalStatus[] = ["REJECTED", "FAILED", "CANCELLED"];
 
 export const APPROVALS_PATH = "/approvals";
 export const approvalPath = (idOrRef: string) => `${APPROVALS_PATH}/${encodeURIComponent(idOrRef)}`;
@@ -81,12 +146,23 @@ export const REASON_MAX = 300;
 export type Staged<T> = { applied: T; approval?: undefined } | { approval: Approval; applied?: undefined };
 
 /** Where a request's target lives in this back office. */
-export function targetLink(t: Approval["target"], type?: ApprovalType): string {
-  // A bulk KYC decision is about many farmers: the KYC desk's waiting list.
-  if (type === "FARMER_KYC_BULK_DECISION") return "/token-console/kyc?kyc=PENDING";
+export function targetLink(t: Approval["target"], type?: ApprovalType, details?: BulkDecisionDetails | null): string {
+  // A bulk KYC decision is about many farmers: the KYC desk's waiting list,
+  // narrowed to the one grower when only one was listed.
+  if (type === "FARMER_KYC_BULK_DECISION") {
+    const one = details?.scope === "GROWERS" && details.listed === 1 ? details.sample[0]?.growerNo : null;
+    return `/token-console/kyc?kyc=PENDING${one ? `&q=${encodeURIComponent(one)}` : ""}`;
+  }
   if (t.kind === "AGENT") return `/agents?focus=${encodeURIComponent(t.reference)}`;
   if (t.kind === "MERCHANT") return `/merchants/${encodeURIComponent(t.reference)}`;
   return `/farmers/${encodeURIComponent(t.reference)}`;
+}
+
+/** The target in words, for "Nothing was changed on …". */
+export function targetPhrase(t: Approval["target"], type?: ApprovalType): string {
+  if (type === "FARMER_KYC_BULK_DECISION") return "any farmer's KYC";
+  const kind = t.kind === "AGENT" ? "agent" : t.kind === "MERCHANT" ? "merchant" : "farmer";
+  return `${kind} ${t.reference}${t.name ? ` (${t.name})` : ""}`;
 }
 
 /** An approval reference inside a message (APPROVAL_PENDING names the open one). */

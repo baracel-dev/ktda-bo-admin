@@ -8,6 +8,7 @@ import { MERCHANT_DETAIL_NOT_AVAILABLE, kybOf, merchantsApi } from "../../lib/ap
 import { KYB_LABEL, KYB_TONE, ratePercent } from "../../lib/merchantsAgentsContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { LastRejection } from "../../components/ApprovalNotice";
 
 /* One merchant of this institution, laid out like a farmer's page: who they
    are (from the channel-api, through omnichannel's passthrough), their wallet
@@ -77,6 +78,7 @@ export default function MerchantDetail() {
         subtitle={[words(merchant.businessType), words(merchant.category), merchant.createdAt && `since ${calendarDate(merchant.createdAt)}`].filter((x) => x && x !== "—").join(" · ") || undefined}
         actions={<Badge tone={KYB_TONE[kyb] ?? "neutral"}>{`KYB: ${KYB_LABEL[kyb] ?? kyb}`}</Badge>}
       />
+      <LastRejection key={merchant.brsNo} target={merchant.brsNo} className="mb-4" />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="merchant-tiles">
         <div data-testid="wallet-balance">

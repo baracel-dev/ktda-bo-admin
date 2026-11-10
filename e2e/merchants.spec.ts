@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { envelope, json, signIn } from "./stubs";
+import { envelope, json, rejectedRequest, signIn, stubLastRejection } from "./stubs";
 
 /* Merchants (prototype 3.8). Reads come from the channel-api's real
  * merchants through omnichannel's /ktda/merchants passthrough, mapped to the
@@ -278,4 +278,14 @@ test("a merchant that is not this institution's, and an older ?focus= link", asy
   await expect(page).toHaveURL(/\/merchants\/M-10200$/);
   await expect(page.getByTestId("merchant-profile").getByRole("heading", { name: "Kericho Agrovet", level: 1 })).toBeVisible();
   await expect(page.getByTestId("wallet-balance")).toContainText("KES 12,500.50");
+});
+
+test("the merchant's page shows the last refused change, by its reference, with the checker's note", async ({ page }) => {
+  await stub(page, { detail: (id) => (id === "ch-M-10200" ? { status: 200, body: detail("M-10200") } : undefined) });
+  const asked = await stubLastRejection(page, "M-10200", rejectedRequest("AP-10015", { kind: "MERCHANT", reference: "M-10200", name: "Kericho Agrovet" }, "Change settlement of merchant M-10200", "No bank letter for the new account."));
+  await page.goto("/merchants/ch-M-10200");
+  await expect(page.getByTestId("last-rejection")).toContainText("Last change refused: Change settlement of merchant M-10200");
+  await expect(page.getByTestId("last-rejection-note")).toHaveText("No bank letter for the new account.");
+  await expect(page.getByTestId("last-rejection-link")).toHaveAttribute("href", "/approvals?open=AP-10015");
+  expect(asked.some((q) => q.get("target") === "M-10200" && q.get("status") === "REJECTED")).toBe(true);
 });

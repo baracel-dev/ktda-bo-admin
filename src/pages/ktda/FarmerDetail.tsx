@@ -11,6 +11,7 @@ import { customerDeskLink } from "../../lib/tokenConsole/customerSearch";
 import { CHANNEL_LABEL, NOT_AVAILABLE, STATE_LABEL, STATE_MEANS, STATE_TONE, type Farmer } from "../../lib/journeyContract";
 import { SourceError } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
+import { LastRejection } from "../../components/ApprovalNotice";
 import { FarmerKyc } from "./FarmerKyc";
 import { AssistedOnboardingSection, FarmerPhotos } from "./AssistedOnboarding";
 
@@ -97,6 +98,7 @@ export default function FarmerDetail() {
         ].filter(Boolean).join(" · ") || undefined}
         actions={<Badge tone={STATE_TONE[farmer.status] ?? "neutral"}>{STATE_LABEL[farmer.status] ?? farmer.status}</Badge>}
       />
+      <LastRejection key={farmer.growerNo} target={farmer.growerNo} className="mb-4" />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">

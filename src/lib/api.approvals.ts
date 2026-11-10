@@ -5,19 +5,41 @@ import { omniCall, type Page } from "./omniApi";
 import { maybe, orUnavailable, type Maybe } from "./omniMaybe";
 import {
   APPROVALS_PATH, approvalPath,
-  type Approval, type ApprovalStatus, type ApprovalsSummary, type ApprovalType, type Staged,
+  type Approval, type ApprovalDetails, type ApprovalStatus, type ApprovalsSummary, type ApprovalType, type Staged,
 } from "./approvalsContract";
 
 export const APPROVALS_NOT_AVAILABLE = "Not available on this environment yet: omnichannel here has no approvals queue.";
 
-export type ApprovalsQuery = { status: ApprovalStatus; type?: ApprovalType | null; page?: number; size?: number };
+export type ApprovalsQuery = {
+  status: ApprovalStatus; type?: ApprovalType | null;
+  /** One target's requests: an agent number, a merchant reference, a grower number, or "farmers" for bulk KYC decisions. */
+  target?: string | null;
+  /** Only the signed-in staff member's own requests. */
+  mine?: boolean;
+  page?: number; size?: number;
+};
 
 export const approvalsApi = {
-  list: ({ status, type, page = 1, size = 20 }: ApprovalsQuery): Promise<Maybe<Page<Approval>>> => {
+  list: ({ status, type, target, mine, page = 1, size = 20 }: ApprovalsQuery): Promise<Maybe<Page<Approval>>> => {
     const p = new URLSearchParams({ status });
     if (type) p.set("type", type);
+    if (target) p.set("target", target);
+    if (mine) p.set("mine", "true");
     return maybe(omniCall.page<Approval>(`${APPROVALS_PATH}?${p}`, page, size));
   },
+  /** The target as it stands now; null when it has gone or the type has none. Unavailable before v2. */
+  details: async (idOrRef: string): Promise<Maybe<ApprovalDetails | null>> => {
+    const r = await maybe(omniCall.get<{ details: ApprovalDetails | null }>(`${approvalPath(idOrRef)}/details`));
+    return r.available ? { available: true, data: r.data?.details ?? null } : r;
+  },
+  /** The latest rejected request for one target, or null. */
+  lastRejected: async (target: string): Promise<Approval | null> => {
+    const r = await approvalsApi.list({ status: "REJECTED", target, size: 1 });
+    return r.available ? r.data.items[0] ?? null : null;
+  },
+  /** Ask again after a REJECTED, FAILED or CANCELLED request: the new PENDING request. */
+  resubmit: (idOrRef: string, reason?: string) =>
+    orUnavailable(omniCall.post<Approval>(`${approvalPath(idOrRef)}/resubmit`, withReason(reason)), APPROVALS_NOT_AVAILABLE),
   summary: (): Promise<Maybe<ApprovalsSummary>> => maybe(omniCall.get<ApprovalsSummary>(`${APPROVALS_PATH}/summary`)),
   /** By id or reference; null when it is not this institution's. */
   one: async (idOrRef: string): Promise<Approval | null> => {

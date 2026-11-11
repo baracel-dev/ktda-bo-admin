@@ -40,7 +40,8 @@ const KTDA_NAV: NavDef[] = [
 
   { label: "Transactions", to: "/token-console/transactions", section: "Money", icon: ArrowLeftRight },
   { label: "Disputes", to: "/complaints", section: "Money", icon: MessageSquareWarning },
-  { label: "Reconciliation", to: "/token-console/reconciliation", section: "Money", icon: GitCompareArrows },
+  { label: "Reconciliation", to: "/reconciliation", section: "Money", icon: GitCompareArrows },
+  { label: "Ledger reconciliation", to: "/token-console/reconciliation", section: "Money", icon: Scale },
   { label: "Fraud alerts", to: "/fraud-alerts", section: "Money", icon: TriangleAlert },
   { label: "Reports", to: "/reports", section: "Money", icon: FileBarChart2 },
   { label: "Fraud cases", to: "/fraud-cases", section: "Money", icon: FileSearch },

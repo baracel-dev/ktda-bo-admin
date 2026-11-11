@@ -58,9 +58,9 @@ export const rejectedRequest = (reference: string, target: { kind: string; refer
 /** Every permission key of staff-contract v1. */
 export const ALL_PERMISSIONS = [
   "page:dashboard", "page:farmers", "page:kyc", "page:merchants", "page:agents", "page:approvals", "page:payouts", "page:bulk",
-  "page:reports", "page:messages", "page:users", "page:settings",
+  "page:reports", "page:messages", "page:users", "page:settings", "page:reconciliation",
   "act:approvals.decide", "act:payouts.release", "act:kyc.decide", "act:bulk.run", "act:merchants.decide", "act:agents.manage",
-  "act:users.manage", "act:settings.change",
+  "act:users.manage", "act:settings.change", "act:reconciliation.run",
 ];
 
 /** A staff directory record (StaffView); an active ADMIN holding every key by default. */

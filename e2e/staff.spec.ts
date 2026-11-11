@@ -79,11 +79,13 @@ test.describe("signing in", () => {
     await page.goto("/login");
     await page.getByLabel("Email").fill(STAFF.email);
     await page.getByLabel("Password").fill("secret");
+    // Wait for the sign-in call itself: the login page has a heading too, so a
+    // visible heading does not mean the call has been made yet.
+    const signInCall = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname.endsWith("/staff/me/sign-in"));
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
-    const signIn = calls.find((c) => c.path.endsWith("/me/sign-in"))!;
-    expect(signIn.method).toBe("POST");
-    expect(signIn.body).toEqual({ fullName: STAFF.fullName, engineRoles: ["ADMIN"] });
+    expect((await signInCall).postDataJSON()).toEqual({ fullName: STAFF.fullName, engineRoles: ["ADMIN"] });
+    await expect(page).not.toHaveURL(/\/login$/);
+    await expect.poll(() => calls.filter((c) => c.path.endsWith("/me/sign-in")).map((c) => c.method)).toEqual(["POST"]);
   });
 
   test("a disabled member (403 STAFF_DISABLED) is signed out with a clear message", async ({ page }) => {

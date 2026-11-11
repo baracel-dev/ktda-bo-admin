@@ -109,10 +109,13 @@ test("Download template saves omnichannel's CSV under its own name", async ({ pa
 /** Stubs omnichannel's transactions list and summary with `count` paid
  *  cash-ins (plus a payout and a product movement that must be filtered out). */
 async function stubCashIns(page: Page, count: number) {
+  // As omnichannel really answers: a top-up's direction is OUT, the internal
+  // "topup:<id>" is the reference, and the M-Pesa receipt (what a statement
+  // carries) is in the detail — so the statement must match on the receipt.
   const cashIns = Array.from({ length: count }, (_, i) => ({
     id: `t-${i}`, profileId: `p-${i}`, customer: `Grower ${i}`, occurredAt: "2026-11-03T08:00:00Z",
-    source: "MPESA", kind: "TOP_UP", label: "Wallet top-up", direction: "IN", amount: 1000 + i, currency: "KES",
-    status: "PAID", reference: `RCP${String(i).padStart(5, "0")}`, detail: null,
+    source: "MPESA", kind: "TOP_UP", label: "M-Pesa top-up of the balance", direction: "OUT", amount: 1000 + i, currency: "KES",
+    status: "PAID", reference: `topup:${i}`, detail: `received, receipt RCP${String(i).padStart(5, "0")}`,
   }));
   const skip = [
     { id: "t-payout", profileId: "p-x", customer: "X", occurredAt: "2026-11-03T08:00:00Z", source: "MPESA", kind: "PAYOUT", label: "Payout", direction: "OUT", amount: 5000, currency: "KES", status: "SENT", reference: "PAYOUTREF", detail: null },
@@ -141,7 +144,8 @@ test("Generate test statement builds a CSV from the period's cash-ins, covering 
   expect(lines[0]).toBe("transaction_reference,channel,phone,amount,currency,paid_at,account_reference,status");
   // 24 cash-ins: 1 held back (ledger only) → 23 rows, +1 invented (statement only) +2 unreadable = 26 data lines.
   expect(lines).toHaveLength(1 + 26);
-  expect(csv).toContain("RCP00010"); // a real cash-in, matched by reference
+  expect(csv).toContain("RCP00010"); // matched on the M-Pesa receipt from the detail
+  expect(csv).not.toContain("topup:"); // never the internal reference
   expect(csv).toContain("SIMUL-SO-00001"); // invented → statement only
   expect(csv).toContain("SIMUL-BAD-1"); // unreadable → skipped
   expect(csv).toContain("SIMUL-BAD-2");

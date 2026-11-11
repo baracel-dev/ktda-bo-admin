@@ -328,8 +328,9 @@ export const bulkLoads = {
   /** Every row of a PAYOUT run as CSV (Accept: text/csv on /rows, no outcome). */
   payoutRowsCsv: (runId: string): Promise<CsvDownload> => omniCall.download(`${runPath(runId)}/rows`, `${runId}-payouts.csv`, "text/csv"),
   run: (runId: string) => omniCall.get<BulkRun>(runPath(runId)),
-  /** The latest 50 runs, every institution and flow, newest first. */
-  recent: () => omniCall.list<BulkRun>(BASE),
+  /** The latest 50 runs, every institution and flow, newest first; with a
+   *  period (`from`, `to` by startedAt, `to` exclusive) every run in it. */
+  recent: (period?: URLSearchParams) => omniCall.list<BulkRun>(period && period.toString() ? `${BASE}?${period}` : BASE),
   /** `expectedCents` is what the run should have credited, in cents. */
   reconciliation: (runId: string, expectedCents?: number | null) =>
     omniCall.get<BulkReconciliation>(

@@ -13,7 +13,11 @@ import {
   type KycStatus, type KycSweep, type OnboardingChannel, type RegisterFarmer,
 } from "./journeyContract";
 
-export type FarmersQuery = { state?: FarmerState | null; kyc?: KycStatus | null; channel?: OnboardingChannel | null; q?: string; page?: number; size?: number };
+export type FarmersQuery = {
+  state?: FarmerState | null; kyc?: KycStatus | null; channel?: OnboardingChannel | null; q?: string; page?: number; size?: number;
+  /** Registered from this instant, and before `to` (exclusive). An omnichannel without them ignores them. */
+  from?: string | null; to?: string | null;
+};
 export type Maybe<T> = { available: true; data: T } | { available: false };
 /** A register call's answer: `created` false when the farmer was already
  *  registered with the same phone (200 rather than 201). */
@@ -42,12 +46,14 @@ async function maybe<T>(call: Promise<T>): Promise<Maybe<T>> {
 
 export const farmersApi = {
   /** One page, newest registered first as omnichannel orders it. */
-  list: ({ state, kyc, channel, q, page = 1, size = 20 }: FarmersQuery = {}): Promise<Maybe<Page<Farmer>>> => {
+  list: ({ state, kyc, channel, q, from, to, page = 1, size = 20 }: FarmersQuery = {}): Promise<Maybe<Page<Farmer>>> => {
     const params = new URLSearchParams();
     if (state) params.set("state", state);
     if (kyc) params.set("kyc", kyc);
     if (channel) params.set("channel", channel);
     if (q?.trim()) params.set("q", q.trim());
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
     const query = params.toString();
     return maybe(omniCall.page<Farmer>(`${FARMERS_PATH}${query ? `?${query}` : ""}`, page, Math.min(size, FARMERS_MAX_SIZE)));
   },

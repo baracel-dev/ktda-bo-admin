@@ -384,3 +384,57 @@ test("no banner when none of the caller's requests was rejected, or before v2", 
   await expect(page.getByTestId("approvals-table")).toBeVisible();
   await expect(page.getByTestId("mine-rejected-banner")).toHaveCount(0);
 });
+
+/* ---- Reconciliation resolutions (omnichannel PR 152) ---- */
+
+const RECON_RUN = "6f1c2a9e-0000-4c4c-8d8d-000000000001";
+const reconRun = approval("AP-10042", {
+  type: "RECONCILIATION_RESOLVE", title: "Resolve 2 exceptions in reconciliation of mpesa-paybill-2026-11-03.csv",
+  target: { kind: "RECONCILIATION_RUN", reference: RECON_RUN, name: "mpesa-paybill-2026-11-03.csv" },
+  changes: [{ setting: "Open exceptions in the run", now: "3", proposed: "1" }, { setting: "Note", now: "", proposed: "Settled with the channel." }],
+  reason: null, payload: { runId: RECON_RUN, lineIds: ["l-3", "l-5"], note: "Settled with the channel." }, checkerRoles: [],
+});
+const RECON_DETAILS = {
+  runId: RECON_RUN, fileName: "mpesa-paybill-2026-11-03.csv", periodFrom: "2026-11-01T21:00:00Z", periodTo: "2026-11-03T21:00:00Z", exceptionsOpen: 3,
+  note: "Settled with the channel.",
+  lines: [
+    { id: "l-3", outcome: "LEDGER_ONLY", statementReference: null, statementAmount: null, paidAt: null, paymentReference: "KTD-RCPLEDGER", providerReference: "RCPLEDGER", paymentAmount: 1500, completedAt: "2026-11-03T08:15:20Z", currentNote: null, resolved: false },
+    { id: "l-5", outcome: "AMOUNT_MISMATCH", statementReference: "RCPMISMAT", statementAmount: 1000, paidAt: "2026-11-03T08:15:00Z", paymentReference: "KTD-RCPMISMAT", providerReference: "RCPMISMAT", paymentAmount: 500, completedAt: "2026-11-03T08:15:20Z", currentNote: null, resolved: false },
+  ],
+};
+
+test("a reconciliation resolution: its label, the run as the target, and both sides of each line in Details", async ({ page }) => {
+  await stub(page, { lists: { PENDING: [reconRun] }, one: reconRun, details: { "AP-10042": RECON_DETAILS } });
+  await page.goto("/approvals");
+  await expect(page.getByTestId("approvals-table").locator("tbody tr").first()).toContainText("Reconciliation resolution");
+  await page.goto("/approvals?open=AP-10042");
+  const target = page.getByTestId("approval-target");
+  await expect(target).toHaveText("Reconciliation run mpesa-paybill-2026-11-03.csv");
+  await expect(target).toHaveAttribute("href", `/reconciliation/${RECON_RUN}`);
+  const d = page.getByTestId("approval-details");
+  await expect(d).toContainText("mpesa-paybill-2026-11-03.csv");
+  await expect(d).toContainText("2 Nov 2026 – 3 Nov 2026");
+  await expect(page.getByTestId("details-note")).toContainText("Settled with the channel.");
+  const rows = page.getByTestId("details-lines").locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText("Ledger only");
+  await expect(rows.nth(0)).toContainText("RCPLEDGER");
+  await expect(rows.nth(1)).toContainText("Amount mismatch");
+  await expect(rows.nth(1)).toContainText("1,000.00");
+  await expect(rows.nth(1)).toContainText("500.00");
+  await expect(page.getByTestId("details-link")).toHaveText("Open the run");
+  await expect(page.getByTestId("details-link")).toHaveAttribute("href", `/reconciliation/${RECON_RUN}`);
+});
+
+test("a one-line resolution names the line by its reference and links to its run from the payload", async ({ page }) => {
+  const one = approval("AP-10043", {
+    type: "RECONCILIATION_RESOLVE", title: "Resolve statement-only line RCPSTMT01 in reconciliation of mpesa-paybill-2026-11-03.csv",
+    target: { kind: "RECONCILIATION_LINE", reference: "6f1c2a9e-0000-4c4c-8d8d-0000000000aa", name: "RCPSTMT01" },
+    changes: [], reason: null, payload: { runId: RECON_RUN, lineIds: ["6f1c2a9e-0000-4c4c-8d8d-0000000000aa"], note: "Credited by hand." }, checkerRoles: [],
+  });
+  await stub(page, { lists: { PENDING: [one] }, one });
+  await page.goto("/approvals?open=AP-10043");
+  const target = page.getByTestId("approval-target");
+  await expect(target).toHaveText("Reconciliation line RCPSTMT01");
+  await expect(target).toHaveAttribute("href", `/reconciliation/${RECON_RUN}`);
+});

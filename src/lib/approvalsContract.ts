@@ -29,7 +29,9 @@
 
 export type ApprovalType = "AGENT_FLOAT_TOP_UP" | "AGENT_SUSPEND" | "AGENT_REINSTATE" | "MERCHANT_UPDATE" | "MERCHANT_DECISION" | "FARMER_KYC_OVERRIDE" | "FARMER_KYC_BULK_DECISION"
   /* The same three writes on a KTDA channel agent (/ktda/agents), applied on the channel-api. */
-  | "KTDA_AGENT_FLOAT_TOP_UP" | "KTDA_AGENT_SUSPEND" | "KTDA_AGENT_REINSTATE";
+  | "KTDA_AGENT_FLOAT_TOP_UP" | "KTDA_AGENT_SUSPEND" | "KTDA_AGENT_REINSTATE"
+  /* Closing reconciliation exceptions with a note (one line, or up to 200 of a run). */
+  | "RECONCILIATION_RESOLVE";
 export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   AGENT_FLOAT_TOP_UP: "Float top-up",
   AGENT_SUSPEND: "Agent suspension",
@@ -41,6 +43,7 @@ export const APPROVAL_TYPE_LABEL: Record<ApprovalType, string> = {
   KTDA_AGENT_FLOAT_TOP_UP: "Float top-up (app agent)",
   KTDA_AGENT_SUSPEND: "Agent suspension (app agent)",
   KTDA_AGENT_REINSTATE: "Agent reinstatement (app agent)",
+  RECONCILIATION_RESOLVE: "Reconciliation resolution",
 };
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "FAILED";
@@ -52,7 +55,20 @@ export const APPROVAL_STATUS_TONE: Record<ApprovalStatus, "warning" | "success" 
   PENDING: "warning", APPROVED: "success", REJECTED: "danger", CANCELLED: "neutral", FAILED: "danger",
 };
 
-export type ApprovalTargetKind = "AGENT" | "MERCHANT" | "FARMER";
+/** A reconciliation line's reference is its id and its name the statement's (or payment's) reference;
+ *  a run's reference is its id and its name the statement's file name. */
+export type ApprovalTargetKind = "AGENT" | "MERCHANT" | "FARMER" | "RECONCILIATION_LINE" | "RECONCILIATION_RUN";
+export const TARGET_KIND_LABEL: Record<ApprovalTargetKind, string> = {
+  AGENT: "Agent", MERCHANT: "Merchant", FARMER: "Farmer", RECONCILIATION_LINE: "Reconciliation line", RECONCILIATION_RUN: "Reconciliation run",
+};
+const isReconciliation = (k: string) => k === "RECONCILIATION_LINE" || k === "RECONCILIATION_RUN";
+
+/** The target in a row or the drawer: "Agent A-0001 · Name"; a reconciliation target by its name, not its id. */
+export function targetText(t: Approval["target"]): string {
+  const kind = TARGET_KIND_LABEL[t.kind] ?? t.kind.charAt(0) + t.kind.slice(1).toLowerCase().replace(/_/g, " ");
+  if (isReconciliation(t.kind)) return `${kind} ${t.name ?? t.reference}`;
+  return `${kind} ${t.reference}${t.name ? ` · ${t.name}` : ""}`;
+}
 
 export type Approval = {
   id: string;
@@ -124,12 +140,25 @@ export type BulkDecisionDetails = {
   sample: { growerNo: string; fullName: string | null; factory: string | null; kycStatus: string | null; identityResult: string | null }[];
 };
 
-export type ApprovalDetails = AgentDetails | ChannelAgentDetails | MerchantDetails | FarmerDetails | BulkDecisionDetails;
+/** RECONCILIATION_RESOLVE: the run, and both sides of every line the request would close. */
+export type ReconciliationResolveDetails = {
+  runId: string; fileName: string | null; periodFrom: string | null;
+  /** Exclusive. */
+  periodTo: string | null;
+  exceptionsOpen: number; note: string | null;
+  lines: {
+    id: string; outcome: string; statementReference: string | null; statementAmount: number | null; paidAt: string | null;
+    paymentReference: string | null; providerReference: string | null; paymentAmount: number | null; completedAt: string | null;
+    currentNote: string | null; resolved: boolean;
+  }[];
+};
+
+export type ApprovalDetails = AgentDetails | ChannelAgentDetails | MerchantDetails | FarmerDetails | BulkDecisionDetails | ReconciliationResolveDetails;
 
 /** The types /details answers for; any other answers null. */
 export const DETAILED_TYPES: ApprovalType[] = [
   "AGENT_FLOAT_TOP_UP", "AGENT_SUSPEND", "AGENT_REINSTATE", "KTDA_AGENT_FLOAT_TOP_UP", "KTDA_AGENT_SUSPEND", "KTDA_AGENT_REINSTATE",
-  "MERCHANT_UPDATE", "MERCHANT_DECISION", "FARMER_KYC_OVERRIDE", "FARMER_KYC_BULK_DECISION",
+  "MERCHANT_UPDATE", "MERCHANT_DECISION", "FARMER_KYC_OVERRIDE", "FARMER_KYC_BULK_DECISION", "RECONCILIATION_RESOLVE",
 ];
 
 /** Statuses a request can be asked again from. */
@@ -145,12 +174,28 @@ export const REASON_MAX = 300;
  *  once), or the request it staged (202). */
 export type Staged<T> = { applied: T; approval?: undefined } | { approval: Approval; applied?: undefined };
 
-/** Where a request's target lives in this back office. */
-export function targetLink(t: Approval["target"], type?: ApprovalType, details?: BulkDecisionDetails | null): string {
+/** The run a reconciliation request is about: the target for a run, else the payload's (or the details') runId. */
+function reconciliationRun(t: Approval["target"], payload?: unknown, details?: unknown): string | null {
+  if (t.kind === "RECONCILIATION_RUN") return t.reference;
+  for (const o of [details, payload]) {
+    const id = o && typeof o === "object" && "runId" in o ? (o as { runId: unknown }).runId : null;
+    if (typeof id === "string" && id) return id;
+  }
+  return null;
+}
+
+/** Where a request's target lives in this back office. `payload` is the
+ *  request's (a reconciliation line's run is in it). */
+export function targetLink(t: Approval["target"], type?: ApprovalType, details?: ApprovalDetails | null, payload?: unknown): string {
+  if (isReconciliation(t.kind)) {
+    const runId = reconciliationRun(t, payload, details);
+    return runId ? `/reconciliation/${encodeURIComponent(runId)}` : "/reconciliation";
+  }
   // A bulk KYC decision is about many farmers: the KYC desk's waiting list,
   // narrowed to the one grower when only one was listed.
   if (type === "FARMER_KYC_BULK_DECISION") {
-    const one = details?.scope === "GROWERS" && details.listed === 1 ? details.sample[0]?.growerNo : null;
+    const bulk = details as BulkDecisionDetails | null | undefined;
+    const one = bulk?.scope === "GROWERS" && bulk.listed === 1 ? bulk.sample[0]?.growerNo : null;
     return `/token-console/kyc?kyc=PENDING${one ? `&q=${encodeURIComponent(one)}` : ""}`;
   }
   if (t.kind === "AGENT") return `/agents?focus=${encodeURIComponent(t.reference)}`;
@@ -161,6 +206,8 @@ export function targetLink(t: Approval["target"], type?: ApprovalType, details?:
 /** The target in words, for "Nothing was changed on …". */
 export function targetPhrase(t: Approval["target"], type?: ApprovalType): string {
   if (type === "FARMER_KYC_BULK_DECISION") return "any farmer's KYC";
+  if (t.kind === "RECONCILIATION_LINE") return `reconciliation line ${t.name ?? t.reference}: it is still open`;
+  if (t.kind === "RECONCILIATION_RUN") return `the lines of ${t.name ?? "the run"}: they are still open`;
   const kind = t.kind === "AGENT" ? "agent" : t.kind === "MERCHANT" ? "merchant" : "farmer";
   return `${kind} ${t.reference}${t.name ? ` (${t.name})` : ""}`;
 }

@@ -10,7 +10,7 @@ import { useAuth } from "../../../lib/auth";
 import { ACT } from "../../../lib/staffContract";
 import { reconciliationApi } from "../../../lib/api.reconciliation";
 import { generateMockStatement } from "../../../lib/reconciliationSim";
-import { nairobiMidnight, runLink, type ReconciliationRun } from "../../../lib/reconciliationContract";
+import { nairobiMidnight, periodText, runLink, type ReconciliationRun } from "../../../lib/reconciliationContract";
 import { SourceError } from "../../../components/tokenconsole/ConsoleTable";
 import { ActionModal } from "../../../components/tokenconsole/ActionModal";
 
@@ -18,13 +18,6 @@ import { ActionModal } from "../../../components/tokenconsole/ActionModal";
    puts one channel statement against what this service recorded as paid
    (reconciliationContract.ts) and opens on its own page. */
 
-/** "3 Nov – 4 Nov 2026"; the end is exclusive, so the last day shown is the day before. */
-export function periodText(r: Pick<ReconciliationRun, "periodFrom" | "periodTo">): string {
-  if (!r.periodFrom && !r.periodTo) return "—";
-  const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Nairobi" });
-  const last = r.periodTo ? new Date(new Date(r.periodTo).getTime() - 1).toISOString() : null;
-  return `${r.periodFrom ? day(r.periodFrom) : "…"} – ${last ? day(last) : "…"}`;
-}
 
 export function CountPills({ run }: { run: ReconciliationRun }) {
   return (

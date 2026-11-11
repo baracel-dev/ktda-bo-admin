@@ -6,6 +6,14 @@
    three outcomes other than MATCHED are exceptions, resolved with a note
    (what was found, what was done). Nothing here moves money.
 
+   Resolving is maker-checker (PR 152): the note is proposed (202 with the
+   approval request, type RECONCILIATION_RESOLVE) and the line counts as
+   resolved only once a second person approves it in the Approvals queue.
+   One request covers one line or up to 200 lines of a run under one note.
+   While a line waits it carries `pendingApproval`; proposing it again is 409
+   APPROVAL_PENDING, naming the request. An omnichannel before PR 152
+   resolves at once (200 with the line).
+
    Reading needs page:reconciliation; uploading and resolving need
    act:reconciliation.run (Finance and Administrator by default), which the
    server enforces too: 403 STAFF_FORBIDDEN. */
@@ -58,6 +66,9 @@ export type LedgerSide = {
   amount: number | null; completedAt: string | null;
 };
 
+/** A resolution waiting for a second person. */
+export type PendingResolution = { reference: string; note: string | null; proposedBy: string | null; proposedAt: string | null };
+
 export type ReconciliationLine = {
   id: string;
   outcome: ReconciliationOutcome;
@@ -65,9 +76,21 @@ export type ReconciliationLine = {
   statement: StatementSide | null;
   ledger: LedgerSide | null;
   note: string | null;
+  /** Who proposed the note. */
   resolvedBy: string | null;
   resolvedAt: string | null;
+  /** Who approved it, and the request (PR 152; absent before). */
+  approvedBy?: string | null;
+  approvalReference?: string | null;
+  pendingApproval?: PendingResolution | null;
 };
+
+/** At most this many lines under one note and one approval. */
+export const RESOLVE_MAX = 200;
+/** A line that can be picked for "Resolve selected": an open exception with nothing waiting. */
+export const selectable = (l: ReconciliationLine) => l.outcome !== "MATCHED" && !l.resolvedAt && !l.pendingApproval;
+/** The reference a line goes by: the statement's, else the payment's. */
+export const lineRef = (l: ReconciliationLine) => l.statement?.reference ?? l.ledger?.providerRef ?? l.ledger?.reference ?? "this line";
 
 export const RECONCILIATION_PATH = "/reconciliation";
 export const NOTE_MAX = 300;
@@ -81,4 +104,12 @@ export function nairobiMidnight(day: string, plusDays = 0): string {
   const d = new Date(`${day}T00:00:00+03:00`);
   d.setUTCDate(d.getUTCDate() + plusDays);
   return d.toISOString();
+}
+
+/** "3 Nov – 4 Nov 2026"; the end is exclusive, so the last day shown is the day before. */
+export function periodText(r: Pick<ReconciliationRun, "periodFrom" | "periodTo">): string {
+  if (!r.periodFrom && !r.periodTo) return "—";
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Nairobi" });
+  const last = r.periodTo ? new Date(new Date(r.periodTo).getTime() - 1).toISOString() : null;
+  return `${r.periodFrom ? day(r.periodFrom) : "…"} – ${last ? day(last) : "…"}`;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ChevronRight, Download } from "lucide-react";
 import { Badge, Button, Field, NotePanel, PageHeader, Skeleton, StatCard, Tabs, Textarea, useToast } from "../../../ui";
@@ -10,19 +11,25 @@ import { useAuth } from "../../../lib/auth";
 import { ACT } from "../../../lib/staffContract";
 import { OmniApiError } from "../../../lib/omniApi";
 import { reconciliationApi } from "../../../lib/api.reconciliation";
+import { approvalLink } from "../../../lib/approvalsContract";
 import {
-  MATCHED_BY_LABEL, NOTE_MAX, OUTCOME_LABEL, OUTCOME_MEANS, OUTCOME_TONE, OUTCOMES,
+  MATCHED_BY_LABEL, NOTE_MAX, OUTCOME_LABEL, OUTCOME_MEANS, OUTCOME_TONE, OUTCOMES, RESOLVE_MAX, lineRef, periodText, selectable,
   type ReconciliationLine, type ReconciliationOutcome, type ReconciliationRun,
 } from "../../../lib/reconciliationContract";
 import { SourceError } from "../../../components/tokenconsole/ConsoleTable";
 import { ActionModal } from "../../../components/tokenconsole/ActionModal";
-import { periodText } from "./Runs";
 
 /* One reconciliation run: its counts, then every line by outcome, each with
    the statement's side and the ledger's (a dash where one is missing). An
    exception is resolved with a note; a resolved one can be noted again (the
    first note counts). "Export exceptions" is the CSV for working them
-   outside the page. Linkable as ?outcome=LEDGER_ONLY&page=2. */
+   outside the page. Linkable as ?outcome=LEDGER_ONLY&page=2.
+
+   A note is proposed, not applied: it goes to a second person in the
+   Approvals queue, and the line stays open (and counted in "Exceptions
+   open") until they approve. A waiting line shows the request and has no
+   Resolve. Open exceptions can be ticked, across tabs and pages, and
+   resolved together under one note and one approval (at most 200). */
 
 const SIZE = 25;
 type Tab = ReconciliationOutcome | "ALL";
@@ -62,7 +69,18 @@ export default function ReconciliationRunPage() {
   const lines = useAsyncData(() => reconciliationApi.lines(id, outcome, page, SIZE));
   const { reload } = lines;
   useEffect(() => { void reload(); }, [outcome, page, reload]);
-  const [resolving, setResolving] = useState<ReconciliationLine | null>(null);
+  const [resolving, setResolving] = useState<ReconciliationLine[] | null>(null);
+  // Ticked lines, by id, kept across tabs and pages.
+  const [picked, setPicked] = useState<Map<string, ReconciliationLine>>(new Map());
+  const full = picked.size >= RESOLVE_MAX;
+  const pick = (ls: ReconciliationLine[], on: boolean) => setPicked((cur) => {
+    const next = new Map(cur);
+    for (const l of ls) {
+      if (!on) next.delete(l.id);
+      else if (next.size < RESOLVE_MAX) next.set(l.id, l);
+    }
+    return next;
+  });
   const exportCsv = useAction(() => reconciliationApi.exceptions(id));
 
   const crumb = (
@@ -88,6 +106,10 @@ export default function ReconciliationRunPage() {
   const count: Record<Tab, number> = { ALL: total, MATCHED: run.matched, LEDGER_ONLY: run.ledgerOnly, STATEMENT_ONLY: run.statementOnly, AMOUNT_MISMATCH: run.amountMismatch };
   const data = lines.data;
   const exceptions = run.ledgerOnly + run.statementOnly + run.amountMismatch;
+  const open = data ? data.items.filter(selectable) : [];
+  const anyOnPage = open.some((l) => picked.has(l.id));
+  // Ticked when every open line here is picked, or as many as the cap allowed.
+  const allOnPage = open.length > 0 && (open.every((l) => picked.has(l.id)) || (full && anyOnPage));
 
   return (
     <div data-testid="run-page">
@@ -115,7 +137,7 @@ export default function ReconciliationRunPage() {
         <StatCard label="Statement lines" value={units(run.statementLines)} hint={money(run.statementAmount, run.currency)} />
         <StatCard label="Ledger payments" value={units(run.ledgerPayments)} hint={money(run.ledgerAmount, run.currency)} />
         <StatCard label="Matched" value={units(run.matched)} hint={total ? `${Math.round((run.matched / total) * 100)}% of lines` : undefined} />
-        <StatCard label="Exceptions open" value={units(run.exceptionsOpen)} hint={`${units(run.resolved)} resolved`} />
+        <StatCard label="Exceptions open" value={units(run.exceptionsOpen)} hint={`${units(run.resolved)} resolved · open until a resolution is approved`} />
       </div>
       {run.skippedLines > 0 && (
         <p className="mb-4 text-[12.5px] text-text-soft" data-testid="skipped">
@@ -131,6 +153,17 @@ export default function ReconciliationRunPage() {
       />
       {outcome && outcome !== "MATCHED" && <p className="mb-3 text-[12.5px] text-text-soft">{OUTCOME_MEANS[outcome]}</p>}
 
+      {mayRun && picked.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-[var(--radius-lg)] border border-primary-300 bg-primary-50 px-3 py-2 text-[12.5px]" data-testid="selection-bar">
+          <span className="font-medium text-text" data-testid="selected-count">{units(picked.size)} selected</span>
+          {full && <span className="text-text-soft" data-testid="selection-full">At most {units(RESOLVE_MAX)} under one note.</span>}
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Map())}>Clear</Button>
+            <Button size="sm" onClick={() => setResolving([...picked.values()])}>Resolve selected</Button>
+          </div>
+        </div>
+      )}
+
       {lines.error ? <SourceError what="the lines" error={lines.error} onRetry={lines.reload} /> : !data ? <Skeleton className="h-48" /> : data.items.length === 0 ? (
         <p className="rounded-[var(--radius-lg)] border border-border p-6 text-center text-sm text-text-soft" data-testid="lines-empty">
           {outcome ? `No line is ${OUTCOME_LABEL[outcome].toLowerCase()}.` : "This run has no lines."}
@@ -140,6 +173,14 @@ export default function ReconciliationRunPage() {
           <table className="w-full text-[12.5px]" data-testid="lines-table">
             <thead className="bg-surface-sunken text-left text-[11.5px] text-text-soft">
               <tr>
+                {mayRun && (
+                  <th className="w-8 px-2.5 py-2" rowSpan={2}>
+                    <input
+                      type="checkbox" aria-label="Select the open exceptions on this page" className="h-4 w-4 cursor-pointer rounded border border-border-strong accent-primary-600 disabled:cursor-not-allowed disabled:opacity-40"
+                      checked={allOnPage} disabled={open.length === 0 || (full && !anyOnPage)} onChange={(e) => pick(open, e.target.checked)}
+                    />
+                  </th>
+                )}
                 <th className="px-2.5 py-2 font-medium">Outcome</th>
                 <th className="border-l border-border px-2.5 py-2 font-medium" colSpan={5}>Statement</th>
                 <th className="border-l border-border px-2.5 py-2 font-medium" colSpan={4}>Recorded here</th>
@@ -166,8 +207,21 @@ export default function ReconciliationRunPage() {
                 const s = l.statement;
                 const g = l.ledger;
                 const exception = l.outcome !== "MATCHED";
+                const waiting = l.pendingApproval;
+                const can = selectable(l);
+                const on = picked.has(l.id);
                 return (
-                  <tr key={l.id} className="border-t border-border/60 align-top" data-line={l.id} data-outcome={l.outcome}>
+                  <tr key={l.id} className={`border-t border-border/60 align-top ${on ? "bg-primary-50/60" : ""}`} data-line={l.id} data-outcome={l.outcome}>
+                    {mayRun && (
+                      <td className="px-2.5 py-2">
+                        {can && (
+                          <input
+                            type="checkbox" aria-label={`Select ${lineRef(l)}`} className="h-4 w-4 cursor-pointer rounded border border-border-strong accent-primary-600 disabled:cursor-not-allowed disabled:opacity-40" data-testid="line-pick"
+                            checked={on} disabled={!on && full} onChange={(e) => pick([l], e.target.checked)}
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className="px-2.5 py-2"><Badge tone={OUTCOME_TONE[l.outcome]} className="whitespace-nowrap">{OUTCOME_LABEL[l.outcome]}</Badge></td>
                     <td className="border-l border-border/60 px-2.5 py-2 font-mono" data-testid="statement-ref">{dash(s?.reference)}</td>
                     <td className="px-2.5 py-2">{dash(s?.channel)}</td>
@@ -181,15 +235,26 @@ export default function ReconciliationRunPage() {
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-2 text-text-soft">{g?.completedAt ? dateTime(g.completedAt) : "—"}</td>
                     <td className="border-l border-border/60 px-2.5 py-2">{l.matchedBy ? MATCHED_BY_LABEL[l.matchedBy] ?? l.matchedBy : "—"}</td>
-                    <td className="min-w-[180px] px-2.5 py-2">
+                    <td className="min-w-[200px] px-2.5 py-2">
                       {l.note && (
                         <div data-testid="line-note">
                           <div className="text-text">{l.note}</div>
-                          <div className="text-[11.5px] text-text-faint">{[l.resolvedBy, l.resolvedAt && dateTime(l.resolvedAt)].filter(Boolean).join(", ")}</div>
+                          <div className="text-[11.5px] text-text-faint">{resolvedLine(l)}</div>
                         </div>
                       )}
-                      {exception && mayRun && (
-                        <Button size="sm" variant={l.resolvedAt ? "ghost" : "outline"} className="mt-1" onClick={() => setResolving(l)}>
+                      {waiting && (
+                        <div className={l.note ? "mt-2" : ""} data-testid="line-pending">
+                          <Link to={approvalLink(waiting.reference)} className="hover:underline">
+                            <Badge tone="warning" className="whitespace-nowrap">Awaiting approval {waiting.reference}</Badge>
+                          </Link>
+                          {waiting.note && <div className="mt-1 text-text">{waiting.note}</div>}
+                          <div className="text-[11.5px] text-text-faint">
+                            Proposed{waiting.proposedBy ? ` by ${waiting.proposedBy}` : ""}{waiting.proposedAt ? `, ${dateTime(waiting.proposedAt)}` : ""}
+                          </div>
+                        </div>
+                      )}
+                      {exception && mayRun && !waiting && (
+                        <Button size="sm" variant={l.resolvedAt ? "ghost" : "outline"} className="mt-1" onClick={() => setResolving([l])}>
                           {l.resolvedAt ? "Add a note" : "Resolve"}
                         </Button>
                       )}
@@ -216,11 +281,15 @@ export default function ReconciliationRunPage() {
       {resolving && (
         <ResolveModal
           runId={run.id}
-          line={resolving}
+          lines={resolving}
           onClose={() => setResolving(null)}
-          onDone={() => {
+          onDone={(reference) => {
+            const many = resolving.length > 1;
             setResolving(null);
-            toast.push("Noted.");
+            setPicked(new Map());
+            toast.push(reference
+              ? `Sent for approval as ${reference}. ${many ? "The lines stay" : "The line stays"} open until a second person approves.`
+              : "Noted.");
             void lines.reload();
             void loaded.reload();
           }}
@@ -230,18 +299,39 @@ export default function ReconciliationRunPage() {
   );
 }
 
-function ResolveModal({ runId, line, onClose, onDone }: { runId: string; line: ReconciliationLine; onClose: () => void; onDone: () => void }) {
+/** "Resolved by X, approved by Y · AP-10042", or "X, 3 Nov 2026 10:00" from before approvals. */
+function resolvedLine(l: ReconciliationLine): ReactNode {
+  if (l.approvedBy || l.approvalReference) {
+    return (
+      <>
+        {[l.resolvedBy && `Resolved by ${l.resolvedBy}`, l.approvedBy && `approved by ${l.approvedBy}`].filter(Boolean).join(", ")}
+        {l.approvalReference && <> · <Link to={approvalLink(l.approvalReference)} className="hover:underline" data-testid="line-approval">{l.approvalReference}</Link></>}
+      </>
+    );
+  }
+  return [l.resolvedBy, l.resolvedAt && dateTime(l.resolvedAt)].filter(Boolean).join(", ");
+}
+
+/** One line (Resolve, Add a note) or the ticked ones (Resolve selected), under one note. */
+function ResolveModal({ runId, lines, onClose, onDone }: {
+  runId: string; lines: ReconciliationLine[]; onClose: () => void; onDone: (reference: string | null) => void;
+}) {
   const [note, setNote] = useState("");
-  const save = useAction(() => reconciliationApi.resolve(runId, line.id, note.trim()));
-  const ref = line.statement?.reference ?? line.ledger?.reference ?? line.ledger?.providerRef ?? "this line";
+  const one = lines.length === 1 ? lines[0] : null;
+  const save = useAction(() => (one
+    ? reconciliationApi.resolve(runId, one.id, note.trim())
+    : reconciliationApi.resolveMany(runId, lines.map((l) => l.id), note.trim())));
   const submit = async () => {
-    if (await save.run()) onDone();
+    const r = await save.run();
+    if (r) onDone(r.approval?.reference ?? null);
   };
+  const again = !!one?.resolvedAt;
   return (
     <ActionModal
-      title={line.resolvedAt ? `Add a note on ${ref}` : `Resolve ${ref}`}
-      description={line.outcome !== "MATCHED" ? OUTCOME_MEANS[line.outcome] : undefined}
-      submitLabel={line.resolvedAt ? "Add note" : "Resolve"}
+      title={one ? `${again ? "Add a note on" : "Resolve"} ${lineRef(one)}` : `Resolve ${units(lines.length)} exceptions`}
+      description={one && one.outcome !== "MATCHED" ? OUTCOME_MEANS[one.outcome] : "One note for every line selected."}
+      submitLabel="Send for approval"
+      pendingLabel="Sending…"
       problem={!note.trim() ? "A note: what was found, and what was done." : undefined}
       pending={save.pending}
       error={save.error}
@@ -249,7 +339,10 @@ function ResolveModal({ runId, line, onClose, onDone }: { runId: string; line: R
       onClose={onClose}
       size="sm"
     >
-      {line.note && <p className="text-[12.5px] text-text-soft">Noted already: {line.note}. The first note is the one that counts.</p>}
+      <NotePanel tone="info" title="A second person approves it">
+        The note goes to the Approvals queue. {one ? "The line stays" : "The lines stay"} open, and counted in exceptions open, until someone other than you approves it.
+      </NotePanel>
+      {one?.note && <p className="text-[12.5px] text-text-soft">Noted already: {one.note}. The first note is the one that counts.</p>}
       <Field label="Note" required hint={`What was found, and what was done. ${note.length}/${NOTE_MAX}`}>
         <Textarea rows={3} aria-label="Note" value={note} maxLength={NOTE_MAX} onChange={(e) => setNote(e.target.value)} />
       </Field>

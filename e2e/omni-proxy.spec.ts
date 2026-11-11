@@ -266,10 +266,10 @@ test("cash-in reconciliation: the template, the runs, their lines and exceptions
   for (const path of ["reconciliation/template.csv", "reconciliation/runs", `reconciliation/runs/${RUN}`, `reconciliation/runs/${RUN}/lines?outcome=LEDGER_ONLY&page=1&size=25`, `reconciliation/runs/${RUN}/exceptions.csv`]) {
     expect((await call(`/omni/api/operator/${path}`)).res.status, `GET ${path}`).toBe(200);
   }
-  for (const path of ["reconciliation/runs", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`]) {
+  for (const path of ["reconciliation/runs", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`, `reconciliation/runs/${RUN}/resolutions`]) {
     expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
   }
-  for (const [method, path] of [["POST", "reconciliation/template.csv"], ["GET", "reconciliation/templateXcsv"], ["PUT", `reconciliation/runs/${RUN}`], ["DELETE", `reconciliation/runs/${RUN}`], ["POST", `reconciliation/runs/${RUN}`], ["GET", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`], ["GET", `reconciliation/runs/${RUN}/exceptionsXcsv`], ["GET", "reconciliation"]]) {
+  for (const [method, path] of [["POST", "reconciliation/template.csv"], ["GET", "reconciliation/templateXcsv"], ["PUT", `reconciliation/runs/${RUN}`], ["DELETE", `reconciliation/runs/${RUN}`], ["POST", `reconciliation/runs/${RUN}`], ["GET", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`], ["GET", `reconciliation/runs/${RUN}/resolutions`], ["POST", `reconciliation/runs/${RUN}/resolutionsX`], ["GET", `reconciliation/runs/${RUN}/exceptionsXcsv`], ["GET", "reconciliation"]]) {
     const r = await call(`/omni/api/operator/${path}`, { method });
     expect(r.res.status, `${method} ${path}`).toBe(404);
     expect(r.upstream, `${method} ${path}`).toBeUndefined();

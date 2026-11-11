@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { envelope, json, signIn, staffView, stubStaffMe } from "./stubs";
 
@@ -103,6 +104,68 @@ test("Download template saves omnichannel's CSV under its own name", async ({ pa
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download template" }).click();
   expect((await download).suggestedFilename()).toBe("cash-in-statement-template.csv");
+});
+
+/** Stubs omnichannel's transactions list and summary with `count` paid
+ *  cash-ins (plus a payout and a product movement that must be filtered out). */
+async function stubCashIns(page: Page, count: number) {
+  const cashIns = Array.from({ length: count }, (_, i) => ({
+    id: `t-${i}`, profileId: `p-${i}`, customer: `Grower ${i}`, occurredAt: "2026-11-03T08:00:00Z",
+    source: "MPESA", kind: "TOP_UP", label: "Wallet top-up", direction: "IN", amount: 1000 + i, currency: "KES",
+    status: "PAID", reference: `RCP${String(i).padStart(5, "0")}`, detail: null,
+  }));
+  const skip = [
+    { id: "t-payout", profileId: "p-x", customer: "X", occurredAt: "2026-11-03T08:00:00Z", source: "MPESA", kind: "PAYOUT", label: "Payout", direction: "OUT", amount: 5000, currency: "KES", status: "SENT", reference: "PAYOUTREF", detail: null },
+    { id: "t-product", profileId: "p-y", customer: "Y", occurredAt: "2026-11-03T08:00:00Z", source: "PRODUCT", kind: "INTEREST", label: "Interest", direction: "IN", amount: 12, currency: "KES", status: "PAID", reference: "PRODUCTREF", detail: null },
+  ];
+  await page.route(/\/omni\/api\/operator\/transactions/, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/summary")) return json(route, [{ currency: "KES", collected: { count, amount: 0 }, paidOut: { count: 0, amount: 0 }, failed: { count: 0, amount: 0 }, pending: { count: 0, amount: 0 } }]);
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Total-Pages": "1", "X-Total-Count": String(count + skip.length) }, body: JSON.stringify([...cashIns, ...skip]) });
+  });
+}
+
+test("Generate test statement builds a CSV from the period's cash-ins, covering every outcome, and saves it", async ({ page }) => {
+  await stub(page);
+  await stubCashIns(page, 24);
+  await page.goto("/reconciliation");
+  await page.getByRole("button", { name: "Generate test statement" }).click();
+  await expect(page.getByTestId("generate-hint")).toContainText("Up to 500 of the period");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Generate CSV" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/^mock-reconciliation-statement-\d{4}-\d{2}-\d{2}\.csv$/);
+
+  const csv = readFileSync((await file.path())!, "utf8").trim();
+  const lines = csv.split("\n");
+  expect(lines[0]).toBe("transaction_reference,channel,phone,amount,currency,paid_at,account_reference,status");
+  // 24 cash-ins: 1 held back (ledger only) → 23 rows, +1 invented (statement only) +2 unreadable = 26 data lines.
+  expect(lines).toHaveLength(1 + 26);
+  expect(csv).toContain("RCP00010"); // a real cash-in, matched by reference
+  expect(csv).toContain("SIMUL-SO-00001"); // invented → statement only
+  expect(csv).toContain("SIMUL-BAD-1"); // unreadable → skipped
+  expect(csv).toContain("SIMUL-BAD-2");
+  expect(csv).not.toContain("PAYOUTREF"); // payouts are not cash-ins
+  expect(csv).not.toContain("PRODUCTREF"); // product movements are not on a channel statement
+
+  await expect(page.getByText(/22 matched, 1 mismatch, 1 statement only, 1 ledger only, 2 skipped/)).toBeVisible();
+  await expect(page.getByText(/will also show as/)).toHaveCount(0); // period count equals used, so no overflow warning
+});
+
+test("Generate test statement warns when the period holds more cash-ins than the statement uses", async ({ page }) => {
+  await stub(page);
+  await page.route(/\/omni\/api\/operator\/transactions/, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/summary")) return json(route, [{ currency: "KES", collected: { count: 5000, amount: 0 }, paidOut: { count: 0, amount: 0 }, failed: { count: 0, amount: 0 }, pending: { count: 0, amount: 0 } }]);
+    const items = Array.from({ length: 100 }, (_, i) => ({ id: `t-${i}`, profileId: `p-${i}`, customer: `Grower ${i}`, occurredAt: "2026-11-03T08:00:00Z", source: "MPESA", kind: "TOP_UP", label: "Top-up", direction: "IN", amount: 1000 + i, currency: "KES", status: "PAID", reference: `RCP${i}`, detail: null }));
+    return route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Total-Pages": "50", "X-Total-Count": "5000" }, body: JSON.stringify(items) });
+  });
+  await page.goto("/reconciliation");
+  await page.getByRole("button", { name: "Generate test statement" }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Generate CSV" }).click();
+  await download;
+  await expect(page.getByText(/This period holds 5,000 cash-ins/)).toBeVisible();
 });
 
 test("upload with a period: the file, and the days as Nairobi midnights (the last day included), then the run opens", async ({ page }) => {

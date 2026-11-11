@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FileDown, FileSpreadsheet, Printer } from "lucide-react";
 import { Button, Card, ChartLegend, ColumnChart, DateRangeFilter, FilterBar, NotePanel, PageHeader, SearchInput, Select, SelectFilter, Skeleton, StatCard } from "../ui";
@@ -149,7 +149,7 @@ function LiveReport({ entry }: { entry: Entry }) {
   // The URL as last set: React Router's own updater sees the params of the last render, so two
   // quick edits (From, then To) would otherwise undo each other.
   const latest = useRef(params);
-  latest.current = params;
+  useLayoutEffect(() => { latest.current = params; }, [params]);
   const setPeriod = (p: Period) => {
     latest.current = withPeriod(latest.current, p);
     setParams(latest.current, { replace: true });

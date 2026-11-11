@@ -3,7 +3,14 @@
    this institution. A report is columns and rows (what the table shows and
    the exports carry), with tiles and a chart where it has them. A read this
    environment's omnichannel does not have makes the report say "not
-   available on this environment yet". */
+   available on this environment yet".
+
+   Every report but agent commissions takes a period (reportPeriod.ts): the
+   list is asked for it where omnichannel takes one, and the report keeps
+   only the rows whose own date falls in it (a run by when it was released,
+   or started if not yet; a KYC decision by when it was decided). Where the
+   report's date comes after the list's (released after started, decided
+   after registered), only the end of the period goes to the server. */
 
 import { omniCall, type Page } from "./omniApi";
 import type { Maybe } from "./omniMaybe";
@@ -16,6 +23,7 @@ import {
 } from "./journeyContract";
 import { AGENT_STATUS_LABEL, type Agent } from "./merchantsAgentsContract";
 import { nairobiDate, nairobiDateTime, nairobiMonth, type Column, type Row } from "./reportExport";
+import { inPeriod, NO_PERIOD, periodBounds, periodQuery, type Period } from "./reportPeriod";
 
 export type ReportData = {
   columns: Column[];
@@ -54,10 +62,13 @@ const kes = (n: number | null | undefined) => (n === null || n === undefined ? n
 
 /* ---- 1. Payment runs ---- */
 
-export async function paymentRuns(): Promise<Loaded> {
-  const r = await maybe(bulkLoads.recent());
+/** A run's date in a report: when it was released, or started where it has not been. */
+export const runDate = (x: BulkRun) => x.releasedAt ?? x.startedAt;
+
+export async function paymentRuns(period: Period = NO_PERIOD): Promise<Loaded> {
+  const r = await maybe(bulkLoads.recent(periodQuery(period, true)));
   if (!r.available) return { available: false };
-  const runs = r.data.filter((x) => x.flow === "PAYMENT").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const runs = r.data.filter((x) => x.flow === "PAYMENT" && inPeriod(runDate(x), period)).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const net = (x: BulkRun) => x.payableAmount ?? x.totalAmount ?? 0;
   const byMonth = new Map<string, number>();
   for (const x of runs) if (x.completedAt && (x.status === "COMPLETED" || x.status === "PARTIAL")) {
@@ -100,10 +111,10 @@ const settled = (x: BulkRun) => !!x.completedAt && (x.status === "COMPLETED" || 
 
 /* ---- Pay to M-PESA runs (bulk-loads flow PAYOUT) ---- */
 
-export async function payoutRuns(): Promise<Loaded> {
-  const r = await maybe(bulkLoads.recent());
+export async function payoutRuns(period: Period = NO_PERIOD): Promise<Loaded> {
+  const r = await maybe(bulkLoads.recent(periodQuery(period, true)));
   if (!r.available) return { available: false };
-  const runs = r.data.filter((x) => x.flow === "PAYOUT").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const runs = r.data.filter((x) => x.flow === "PAYOUT" && inPeriod(runDate(x), period)).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const byMonth = new Map<string, number>();
   for (const x of runs) if (settled(x)) {
     const m = nairobiMonth(x.completedAt!);
@@ -135,12 +146,13 @@ export async function payoutRuns(): Promise<Loaded> {
 
 /* ---- Transactions summary: money in and out by month, from the runs ---- */
 
-export async function transactionsSummary(): Promise<Loaded> {
-  const r = await maybe(bulkLoads.recent());
+/** By when each run completed. */
+export async function transactionsSummary(period: Period = NO_PERIOD): Promise<Loaded> {
+  const r = await maybe(bulkLoads.recent(periodQuery(period, true)));
   if (!r.available) return { available: false };
   const months = new Map<string, { in: number; out: number }>();
   for (const x of r.data) {
-    if (!settled(x) || (x.flow !== "PAYMENT" && x.flow !== "PAYOUT")) continue;
+    if (!settled(x) || (x.flow !== "PAYMENT" && x.flow !== "PAYOUT") || !inPeriod(x.completedAt, period)) continue;
     const m = nairobiMonth(x.completedAt!);
     const v = months.get(m) ?? { in: 0, out: 0 };
     if (x.flow === "PAYMENT") v.in += x.totalAmount ?? 0;
@@ -192,10 +204,11 @@ const farmerRow = (f: Farmer): Row => ({
   funded: nairobiDate(f.lastFundedAt),
 });
 
-export function farmerRegister(filters: RegisterFilters): PagedReport<Farmer, Maybe<FarmersSummary>> {
+/** By when each farmer was registered. */
+export function farmerRegister(filters: RegisterFilters, period: Period = NO_PERIOD): PagedReport<Farmer, Maybe<FarmersSummary>> {
   return {
     unit: "farmers",
-    streams: [(page, size) => farmersApi.list({ ...filters, page, size })],
+    streams: [(page, size) => farmersApi.list({ ...filters, ...periodBounds(period), page, size })],
     extra: () => farmersApi.summary(),
     build: (items, summary) => {
       const s = summary?.available ? summary.data : null;
@@ -217,7 +230,7 @@ export function farmerRegister(filters: RegisterFilters): PagedReport<Farmer, Ma
           { key: "state", header: "Stage" }, { key: "kyc", header: "KYC" }, { key: "registry", header: "Registry answer" }, { key: "joined", header: "Joined via" },
           { key: "registered", header: "Registered" }, { key: "activated", header: "Activated" }, { key: "funded", header: "Last funded" },
         ],
-        rows: items.map(farmerRow),
+        rows: items.filter((f) => inPeriod(f.registeredAt, period)).map(farmerRow),
         tiles,
       };
     },
@@ -256,11 +269,16 @@ type ApprovalRow = {
 };
 const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "FAILED"] as const;
 
-export const approvals: PagedReport<ApprovalRow> = {
+/** By when each request was made. */
+export const approvals = (period: Period = NO_PERIOD): PagedReport<ApprovalRow> => ({
   unit: "requests",
-  streams: APPROVAL_STATUSES.map((status): Stream<ApprovalRow> => (page, size) => maybe(omniCall.page<ApprovalRow>(`/approvals?status=${status}`, page, size))),
+  streams: APPROVAL_STATUSES.map((status): Stream<ApprovalRow> => (page, size) => {
+    const q = new URLSearchParams({ status });
+    for (const [k, v] of periodQuery(period)) q.set(k, v);
+    return maybe(omniCall.page<ApprovalRow>(`/approvals?${q}`, page, size));
+  }),
   build: (all) => {
-    const items = [...all].sort((a, b) => b.madeAt.localeCompare(a.madeAt));
+    const items = all.filter((a) => inPeriod(a.madeAt, period)).sort((a, b) => b.madeAt.localeCompare(a.madeAt));
     return {
       columns: [
         { key: "reference", header: "Reference" }, { key: "type", header: "Type" }, { key: "title", header: "Title" }, { key: "target", header: "Target" },
@@ -275,17 +293,19 @@ export const approvals: PagedReport<ApprovalRow> = {
       })),
     };
   },
-};
+});
 
 /* ---- Farmer KYC: every farmer by KYC status ---- */
 
 const KYC_REPORT_STATUSES = ["PENDING", "VERIFIED", "REJECTED", "NONE"] as const;
 
-export const farmerKyc: PagedReport<Farmer, Maybe<FarmersSummary>> = {
+/** By when each farmer was registered. */
+export const farmerKyc = (period: Period = NO_PERIOD): PagedReport<Farmer, Maybe<FarmersSummary>> => ({
   unit: "farmers",
-  streams: KYC_REPORT_STATUSES.map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, page, size })),
+  streams: KYC_REPORT_STATUSES.map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, ...periodBounds(period), page, size })),
   extra: () => farmersApi.summary(),
-  build: (items, summary) => {
+  build: (all, summary) => {
+    const items = all.filter((f) => inPeriod(f.registeredAt, period));
     const k = summary?.available ? summary.data.kyc : undefined;
     return {
       columns: [
@@ -305,15 +325,16 @@ export const farmerKyc: PagedReport<Farmer, Maybe<FarmersSummary>> = {
       ] : undefined,
     };
   },
-};
+});
 
 /* ---- 5. KYC decisions ---- */
 
-export const kycDecisions: PagedReport<Farmer> = {
+/** By when each was decided; a farmer is registered before, so only the end goes to the server. */
+export const kycDecisions = (period: Period = NO_PERIOD): PagedReport<Farmer> => ({
   unit: "farmers",
-  streams: (["VERIFIED", "REJECTED"] as const).map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, page, size })),
+  streams: (["VERIFIED", "REJECTED"] as const).map((kyc): Stream<Farmer> => (page, size) => farmersApi.list({ kyc, to: periodBounds(period).to, page, size })),
   build: (all) => {
-    const farmers = all.filter((f) => f.kyc).sort((a, b) => (b.kyc?.decidedAt ?? "").localeCompare(a.kyc?.decidedAt ?? ""));
+    const farmers = all.filter((f) => f.kyc && inPeriod(f.kyc.decidedAt, period)).sort((a, b) => (b.kyc?.decidedAt ?? "").localeCompare(a.kyc?.decidedAt ?? ""));
     return {
       columns: [
         { key: "grower", header: "Grower no." }, { key: "name", header: "Name" }, { key: "decision", header: "Decision" },
@@ -326,4 +347,4 @@ export const kycDecisions: PagedReport<Farmer> = {
       })),
     };
   },
-};
+});

@@ -405,3 +405,132 @@ test("an omnichannel without the runs or the agents says so", async ({ page }) =
   await page.getByTestId("report-list").locator('[data-report="agent-commissions"]').click();
   await expect(page.getByTestId("report-not-available")).toBeVisible();
 });
+
+/* ---- The period: From and To days, Nairobi's, To included, in the URL ---- */
+
+test("the period is kept in the URL, survives picking another report, and Clear drops it", async ({ page }) => {
+  await stub(page);
+  await page.goto("/reports?report=payment-runs");
+  await page.getByLabel("From date").fill("2026-11-01");
+  await page.getByLabel("To date").fill("2026-11-30");
+  await expect(page).toHaveURL(/[?&]from=2026-11-01(&|$)/);
+  await expect(page).toHaveURL(/[?&]to=2026-11-30(&|$)/);
+  await expect(page.getByTestId("report-meta")).toContainText("1 row · 1 Nov 2026 – 30 Nov 2026 · generated");
+  await expect(page.getByTestId("period-basis")).toContainText("Runs released in the period");
+
+  await page.getByTestId("report-list").locator('[data-report="approvals"]').click();
+  await expect(page).toHaveURL(/report=approvals/);
+  await expect(page).toHaveURL(/from=2026-11-01/);
+  await expect(page.getByLabel("From date")).toHaveValue("2026-11-01");
+  await expect(page.getByTestId("report-meta")).toContainText("1 Nov 2026 – 30 Nov 2026");
+
+  await page.getByTestId("report-period").getByRole("button", { name: "Clear" }).click();
+  await expect(page).not.toHaveURL(/from=|to=/);
+  await expect(page.getByTestId("report-meta")).toHaveText(/^3 rows · generated/);
+
+  // A reload, or a link, opens with the period.
+  await page.goto("/reports?report=payment-runs&from=2026-10-01&to=2026-10-31");
+  await expect(page.getByLabel("To date")).toHaveValue("2026-10-31");
+  await expect(page.getByTestId("report-table").locator("tbody tr")).toHaveCount(1);
+  await expect(page.getByTestId("report-table")).toContainText("ktda-pay-2.csv");
+});
+
+test("quick picks: this month, last month and the last 30 days, by today in Nairobi", async ({ page }) => {
+  // 22:30 UTC on 30 Nov is already 1 Dec in Nairobi.
+  await page.clock.setFixedTime(new Date("2026-11-30T22:30:00Z"));
+  await stub(page);
+  await page.goto("/reports?report=approvals");
+  const pick = (k: string) => page.locator(`[data-pick="${k}"]`);
+  await pick("this-month").click();
+  await expect(page).toHaveURL(/from=2026-12-01&to=2026-12-01/);
+  await expect(pick("this-month")).toHaveAttribute("aria-pressed", "true");
+  await pick("last-month").click();
+  await expect(page).toHaveURL(/from=2026-11-01&to=2026-11-30/);
+  await expect(pick("this-month")).toHaveAttribute("aria-pressed", "false");
+  await pick("last-30").click();
+  await expect(page).toHaveURL(/from=2026-11-02&to=2026-12-01/);
+});
+
+test("To is included: the lists get From's Nairobi midnight and the midnight after To, exclusive", async ({ page }) => {
+  const sent = await stub(page);
+  type Sent = (typeof sent)[number];
+  const sentTo = async (match: (s: Sent) => boolean) => {
+    await expect.poll(() => sent.some(match)).toBe(true);
+    return sent.filter(match).at(-1)!;
+  };
+  await page.goto("/reports?report=approvals&from=2026-11-07&to=2026-11-07");
+  await expect(page.getByTestId("report-table").locator("tbody tr")).toHaveCount(3);
+  const a = sent.find((s) => s.path === "/approvals")!;
+  expect(a.query.get("from")).toBe("2026-11-06T21:00:00.000Z");
+  expect(a.query.get("to")).toBe("2026-11-07T21:00:00.000Z");
+
+  // The register narrows by registration on both ends; KYC decisions and the runs only by the end,
+  // since a farmer decided in the period may have registered before it, and a run released in it started before.
+  await page.getByTestId("report-list").locator('[data-report="farmer-register"]').click();
+  const f = await sentTo((s) => s.path === "/farmers");
+  expect([f.query.get("from"), f.query.get("to")]).toEqual(["2026-11-06T21:00:00.000Z", "2026-11-07T21:00:00.000Z"]);
+  await page.getByTestId("report-list").locator('[data-report="kyc-decisions"]').click();
+  const k = await sentTo((s) => s.path === "/farmers" && s.query.get("kyc") === "VERIFIED");
+  expect([k.query.get("from"), k.query.get("to")]).toEqual([null, "2026-11-07T21:00:00.000Z"]);
+  await page.getByTestId("report-list").locator('[data-report="payment-runs"]').click();
+  const b = await sentTo((s) => s.path === "/bulk-loads");
+  expect([b.query.get("from"), b.query.get("to")]).toEqual([null, "2026-11-07T21:00:00.000Z"]);
+});
+
+test("the browser keeps only rows in the period, on the report's own date, at Nairobi's day edges", async ({ page }) => {
+  await stub(page, {
+    runs: [
+      // 21:30 UTC on 31 Oct is 00:30 on 1 Nov in Nairobi: in.
+      run(1, { sourceName: "edge-in.csv", releasedAt: "2026-10-31T21:30:00Z" }),
+      // 21:30 UTC on 1 Nov is 00:30 on 2 Nov in Nairobi: out.
+      run(2, { sourceName: "edge-out.csv", releasedAt: "2026-11-01T21:30:00Z" }),
+      // Not released: by when it started.
+      run(4, { sourceName: "started.csv", releasedAt: null, releasedBy: null, status: "AWAITING_RELEASE", startedAt: "2026-11-01T05:00:00Z" }),
+    ],
+    // An omnichannel that ignores the period: the decisions are kept by when they were decided.
+    farmers: (q) => q.get("kyc") === "VERIFIED"
+      ? { items: [farmer("TEST000031", { registeredAt: "2026-09-01T08:00:00Z", kyc: { status: "VERIFIED", identityResult: "MATCH", startedAt: null, decidedAt: "2026-11-01T08:00:00Z", note: null } }), farmer("TEST000032")] }
+      : { items: [] },
+  });
+  await page.goto("/reports?report=payment-runs&from=2026-11-01&to=2026-11-01");
+  const table = page.getByTestId("report-table");
+  await expect(table.locator("tbody tr")).toHaveCount(2);
+  await expect(table).toContainText("edge-in.csv");
+  await expect(table).toContainText("started.csv");
+  await expect(table).not.toContainText("edge-out.csv");
+  await expect(page.getByTestId("report-meta")).toContainText("2 rows · 1 Nov 2026 · generated");
+
+  await page.getByTestId("report-list").locator('[data-report="kyc-decisions"]').click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).toContainText("TEST000031");
+  await expect(page.getByTestId("period-basis")).toContainText("Decisions made in the period");
+});
+
+test("a report with nothing in the period says so and names the period; the exports carry it", async ({ page }) => {
+  await stub(page);
+  await page.goto("/reports?report=approvals&from=2025-01-01&to=2025-01-31");
+  await expect(page.getByTestId("report-empty")).toHaveText("Nothing in the period (1 Jan 2025 – 31 Jan 2025).");
+  await expect(page.getByTestId("report-meta")).toContainText("0 rows · 1 Jan 2025 – 31 Jan 2025 · generated");
+  await expect(page.getByTestId("print-period")).toHaveText("Period 1 Jan 2025 – 31 Jan 2025 (Nairobi)");
+  const x = await downloaded(page, "Excel");
+  expect(x.name).toMatch(/^approvals-\d{4}-\d{2}-\d{2}-2025-01-01_2025-01-31\.xlsx$/);
+  const sheet = x.bytes.toString("utf8");
+  expect(sheet).toContain("Period");
+  expect(sheet).toContain("1 Jan 2025 – 31 Jan 2025 (Nairobi, both days included)");
+  const csv = await downloaded(page, "CSV");
+  expect(csv.name).toMatch(/^approvals-\d{4}-\d{2}-\d{2}-2025-01-01_2025-01-31\.csv$/);
+
+  // Only a start: open-ended.
+  await page.goto("/reports?report=approvals&from=2030-01-01");
+  await expect(page.getByTestId("report-empty")).toHaveText("Nothing in the period (From 1 Jan 2030).");
+});
+
+test("agent commissions are month to date: no period, and the URL's period is not applied", async ({ page }) => {
+  const sent = await stub(page);
+  await page.goto("/reports?report=agent-commissions&from=2025-01-01&to=2025-01-31");
+  await expect(page.getByTestId("report-table").locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByTestId("report-period")).toHaveCount(0);
+  await expect(page.getByTestId("period-basis")).toHaveText("Month to date: a period does not apply to this report.");
+  await expect(page.getByTestId("report-meta")).not.toContainText("2025");
+  expect(sent.filter((s) => s.path === "/agents").every((s) => !s.query.has("from"))).toBe(true);
+});

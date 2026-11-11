@@ -55,12 +55,13 @@ export class StaffDisabledError extends Error {
 export const PAGE = {
   dashboard: "page:dashboard", farmers: "page:farmers", kyc: "page:kyc", merchants: "page:merchants", agents: "page:agents",
   approvals: "page:approvals", payouts: "page:payouts", bulk: "page:bulk", reports: "page:reports", messages: "page:messages",
-  users: "page:users", settings: "page:settings",
+  users: "page:users", settings: "page:settings", reconciliation: "page:reconciliation",
 } as const;
 
 export const ACT = {
   approvalsDecide: "act:approvals.decide", payoutsRelease: "act:payouts.release", kycDecide: "act:kyc.decide", bulkRun: "act:bulk.run",
   merchantsDecide: "act:merchants.decide", agentsManage: "act:agents.manage", usersManage: "act:users.manage", settingsChange: "act:settings.change",
+  reconciliationRun: "act:reconciliation.run",
 } as const;
 
 /** Which page key a route needs. The longest matching prefix wins; a route
@@ -76,6 +77,8 @@ const ROUTE_KEYS: [string, string][] = [
   ["/approvals", PAGE.approvals],
   ["/bulk", PAGE.bulk],
   ["/reports", PAGE.reports],
+  ["/reconciliation", PAGE.reconciliation],
+  ["/token-console/reconciliation", PAGE.reconciliation],
   ["/campaigns", PAGE.messages],
   ["/users", PAGE.users],
   ["/token-console/users", PAGE.users],

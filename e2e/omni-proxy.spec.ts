@@ -259,3 +259,19 @@ test("the staff directory: sign-in, members, roles, permissions and the access m
     expect(r.upstream, `${method} ${path}`).toBeUndefined();
   }
 });
+
+test("cash-in reconciliation: the template, the runs, their lines and exceptions, an upload and a resolve pass; nothing else under it", async () => {
+  const RUN = "6f1c2a9e-0000-4c4c-8d8d-000000000001";
+  const LINE = "6f1c2a9e-0000-4c4c-8d8d-000000000002";
+  for (const path of ["reconciliation/template.csv", "reconciliation/runs", `reconciliation/runs/${RUN}`, `reconciliation/runs/${RUN}/lines?outcome=LEDGER_ONLY&page=1&size=25`, `reconciliation/runs/${RUN}/exceptions.csv`]) {
+    expect((await call(`/omni/api/operator/${path}`)).res.status, `GET ${path}`).toBe(200);
+  }
+  for (const path of ["reconciliation/runs", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`]) {
+    expect((await call(`/omni/api/operator/${path}`, { method: "POST" })).res.status, `POST ${path}`).toBe(200);
+  }
+  for (const [method, path] of [["POST", "reconciliation/template.csv"], ["GET", "reconciliation/templateXcsv"], ["PUT", `reconciliation/runs/${RUN}`], ["DELETE", `reconciliation/runs/${RUN}`], ["POST", `reconciliation/runs/${RUN}`], ["GET", `reconciliation/runs/${RUN}/lines/${LINE}/resolve`], ["GET", `reconciliation/runs/${RUN}/exceptionsXcsv`], ["GET", "reconciliation"]]) {
+    const r = await call(`/omni/api/operator/${path}`, { method });
+    expect(r.res.status, `${method} ${path}`).toBe(404);
+    expect(r.upstream, `${method} ${path}`).toBeUndefined();
+  }
+});

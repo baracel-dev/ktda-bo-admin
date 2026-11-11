@@ -23,7 +23,8 @@ const FraudAlerts = lazy(() => import("./pages/FraudAlerts"));
 const FraudCases = lazy(() => import("./pages/FraudCases"));
 const Approvals = lazy(() => import("./pages/Approvals"));
 const Transactions = lazy(() => import("./pages/Transactions"));
-const Reconciliation = lazy(() => import("./pages/Reconciliation"));
+const ReconciliationRuns = lazy(() => import("./pages/ktda/reconciliation/Runs"));
+const ReconciliationRunPage = lazy(() => import("./pages/ktda/reconciliation/RunDetail"));
 const UnallocatedFunds = lazy(() => import("./pages/UnallocatedFunds"));
 const UsersRoles = lazy(() => import("./pages/ktda/UsersRoles"));
 const Reports = lazy(() => import("./pages/Reports"));
@@ -88,7 +89,8 @@ function AppRoutes() {
       <Route path="/fraud-cases" element={<ProtectedRoute><FraudCases /></ProtectedRoute>} />
       <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
       <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
-      <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+      <Route path="/reconciliation" element={<ProtectedRoute><ReconciliationRuns /></ProtectedRoute>} />
+      <Route path="/reconciliation/:id" element={<ProtectedRoute><ReconciliationRunPage /></ProtectedRoute>} />
       <Route path="/unallocated-funds" element={<ProtectedRoute><UnallocatedFunds /></ProtectedRoute>} />
       <Route path="/ledger" element={<ProtectedRoute><Ledger /></ProtectedRoute>} />
       <Route path="/enquiries" element={<ProtectedRoute><Enquiries /></ProtectedRoute>} />

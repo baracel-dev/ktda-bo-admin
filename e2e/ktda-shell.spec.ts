@@ -48,7 +48,8 @@ test.describe("signed in", () => {
     await menu.getByRole("button", { name: "Money", exact: true }).click();
     await expect(menu.getByRole("link", { name: "Transactions", exact: true })).toHaveAttribute("href", "/token-console/transactions");
     await expect(menu.getByRole("link", { name: "Disputes", exact: true })).toHaveAttribute("href", "/complaints");
-    await expect(menu.getByRole("link", { name: "Reconciliation", exact: true })).toHaveAttribute("href", "/token-console/reconciliation");
+    await expect(menu.getByRole("link", { name: "Reconciliation", exact: true })).toHaveAttribute("href", "/reconciliation");
+    await expect(menu.getByRole("link", { name: "Ledger reconciliation", exact: true })).toHaveAttribute("href", "/token-console/reconciliation");
     await expect(menu.getByRole("link", { name: "Fraud alerts", exact: true })).toHaveAttribute("href", "/fraud-alerts");
     await expect(menu.getByRole("link", { name: "Reports", exact: true })).toHaveAttribute("href", "/reports");
 
@@ -66,7 +67,6 @@ test.describe("signed in", () => {
     const hrefs = await menuHrefs(page);
     expect(hrefs.filter((h) => h && (HIDDEN_PAGES.has(h) || REMOVED_PAGES.has(h)))).toEqual([]);
     expect(hrefs).not.toContain("/transactions");
-    expect(hrefs).not.toContain("/reconciliation");
     expect(hrefs.filter((h) => h === "/farmers")).toHaveLength(1);
     expect(hrefs).not.toContain("/token-console/investors");
   });
@@ -127,7 +127,7 @@ test.describe("signed in", () => {
     await search.fill("reconc");
     await expect(page.getByRole("option", { name: /Reconciliation/ })).toBeVisible();
     await search.press("Enter");
-    await expect(page).toHaveURL(/\/token-console\/reconciliation$/);
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/reconciliation");
 
     await search.fill("GN-104233");
     await expect(page.getByRole("option").first()).toContainText("Farmer GN-104233");

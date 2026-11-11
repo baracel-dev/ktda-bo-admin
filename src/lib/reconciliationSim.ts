@@ -56,16 +56,27 @@ const PAGE_SIZE = 100;
 /** A ceiling so a huge period cannot page forever while collecting `max`. */
 const MAX_PAGES = 80;
 
+/** The reference a channel statement carries and the ledger matches on: the
+ *  provider's own receipt. Omnichannel's timeline keeps it in `detail`
+ *  ("M-Pesa top-up… receipt SIMXWN9FMC"), while `reference` is the internal
+ *  payment id ("topup:<uuid>") that would never appear on a real statement.
+ *  Falls back to `reference` when no receipt is in the detail. */
+function matchRef(e: CustomerTransactionEntry): string | null {
+  const m = e.detail?.match(/receipt\s+([A-Za-z0-9]+)/i);
+  return m ? m[1] : e.reference;
+}
+
 /** A paid money-in payment on a channel: what the statement is built from.
- *  Mirrors the Transactions "Collected" tile (kind ≠ PAYOUT, status PAID) and
- *  needs a reference and an amount to be matchable. PRODUCT movements are the
- *  wallet's own ledger, never on a channel statement, so they are left out. */
+ *  Mirrors the Transactions "Collected" tile (kind ≠ PAYOUT, status PAID;
+ *  note a top-up's `direction` is OUT, money leaving the customer, so it is
+ *  not used) and needs a receipt to match on and an amount. PRODUCT movements
+ *  are the wallet's own ledger, never on a channel statement, so they go. */
 function isCashIn(e: CustomerTransactionEntry): boolean {
   return (
     e.status === "PAID" &&
     e.kind !== "PAYOUT" &&
     e.source !== "PRODUCT" &&
-    !!e.reference &&
+    !!matchRef(e) &&
     typeof e.amount === "number" &&
     e.amount > 0
   );
@@ -120,7 +131,7 @@ const toRow = (c: Cols): string =>
   [c.reference, c.channel, c.phone, c.amount, c.currency, c.paidAt, c.account, c.status].map(csvCell).join(",");
 
 const rowOf = (e: CustomerTransactionEntry, amount: number): Cols => ({
-  reference: e.reference ?? "",
+  reference: matchRef(e) ?? "",
   channel: e.source ?? "MPESA",
   phone: phoneFor(e.id),
   amount: kes(amount),

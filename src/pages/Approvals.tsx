@@ -6,7 +6,7 @@ import { useAction } from "../lib/tokenConsole/useAction";
 import { dateTime, label, units } from "../lib/tokenConsole/format";
 import { approvalsApi, APPROVALS_NOT_AVAILABLE } from "../lib/api.approvals";
 import {
-  APPROVAL_STATUS_LABEL, APPROVAL_STATUS_TONE, APPROVAL_TYPE_LABEL, DECIDED_STATUSES, REASON_MAX, RESUBMITTABLE, approvalLink, targetLink, targetPhrase,
+  APPROVAL_STATUS_LABEL, APPROVAL_STATUS_TONE, APPROVAL_TYPE_LABEL, DECIDED_STATUSES, REASON_MAX, RESUBMITTABLE, approvalLink, targetLink, targetPhrase, targetText,
   type ApprovalStatus, type ApprovalType,
 } from "../lib/approvalsContract";
 import { ApprovalDetailsSection } from "../components/ApprovalDetails";
@@ -278,8 +278,8 @@ function ApprovalDrawer({ reference, onClose, onChanged, onOpen }: { reference: 
             <DetailItem term="Requested by">{a.maker}</DetailItem>
             <DetailItem term="Requested">{dateTime(a.madeAt)}</DetailItem>
             <DetailItem term="What it changes">
-              <Link to={targetLink(a.target, a.type)} className="font-medium text-primary-600 hover:underline" data-testid="approval-target">
-                {label(a.target.kind)} {a.target.reference}{a.target.name ? ` · ${a.target.name}` : ""}
+              <Link to={targetLink(a.target, a.type, null, a.payload)} className="font-medium text-primary-600 hover:underline" data-testid="approval-target">
+                {targetText(a.target)}
               </Link>
             </DetailItem>
             <DetailItem term="Who can decide">{a.checkerRoles.length ? a.checkerRoles.map((r) => label(r)).join(", ") : "—"}</DetailItem>

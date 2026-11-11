@@ -4,7 +4,8 @@ import { envelope, json, signIn, staffView, stubStaffMe } from "./stubs";
 /* Cash-in reconciliation (omnichannel PR 150): the runs, uploading a
  * statement with an optional period, a run's counts and lines by outcome,
  * resolving an exception with a note, the two CSV downloads, and the
- * permission keys. Stubbed. */
+ * permission keys. PR 152: a note is proposed for a second person's
+ * approval (202), one line or many under one note. Stubbed. */
 
 type Obj = Record<string, unknown>;
 const RUN_ID = "6f1c2a9e-0000-4c4c-8d8d-000000000001";
@@ -30,7 +31,8 @@ const LINES: Obj[] = [
 const headers = (n: number, page = 1, size = 25) => ({ "X-Total-Count": String(n), "X-Page": String(page), "X-Size": String(size), "X-Total-Pages": String(Math.max(1, Math.ceil(n / size))) });
 
 type Sent = { method: string; path: string; query: URLSearchParams; body: string | null };
-async function stub(page: Page, opts: { runs?: Obj[]; upload?: { status: number; body: unknown }; resolve?: { status: number; body: unknown }; missing?: boolean; lines?: Obj[]; total?: number } = {}) {
+/** `staged`: an omnichannel with maker-checker (PR 152): a resolve answers 202 with the request, and the lines wait. */
+async function stub(page: Page, opts: { runs?: Obj[]; upload?: { status: number; body: unknown }; resolve?: { status: number; body: unknown }; missing?: boolean; lines?: Obj[]; total?: number; staged?: boolean } = {}) {
   const sent: Sent[] = [];
   let lines = opts.lines ?? LINES;
   let current = run();
@@ -50,10 +52,17 @@ async function stub(page: Page, opts: { runs?: Obj[]; upload?: { status: number;
       const a = opts.upload ?? { status: 201, body: run() };
       return json(route, a.body, a.status);
     }
-    if (req.method() === "POST" && path.endsWith("/resolve")) {
+    if (req.method() === "POST" && (path.endsWith("/resolve") || path.endsWith("/resolutions"))) {
       if (opts.resolve) return json(route, opts.resolve.body, opts.resolve.status);
+      const body = JSON.parse(req.postData() ?? "{}") as Obj;
+      const note = body.note;
+      if (opts.staged) {
+        const ids = path.endsWith("/resolutions") ? (body.lineIds as string[]) : [path.split("/")[4]!];
+        const pendingApproval = { reference: "AP-10042", note, proposedBy: "staff:finance@ktda.test", proposedAt: "2026-11-04T07:00:00Z" };
+        lines = lines.map((l) => (ids.includes(l.id as string) ? { ...l, pendingApproval } : l));
+        return json(route, { approval: { id: "id-AP-10042", reference: "AP-10042", type: "RECONCILIATION_RESOLVE", status: "PENDING" } }, 202);
+      }
       const lineId = path.split("/")[4]!;
-      const note = (JSON.parse(req.postData() ?? "{}") as Obj).note;
       lines = lines.map((l) => (l.id === lineId ? { ...l, note, resolvedBy: "staff:finance@ktda.test", resolvedAt: "2026-11-04T07:00:00Z" } : l));
       current = run({ resolved: 1, exceptionsOpen: 2 });
       return json(route, lines.find((l) => l.id === lineId));
@@ -180,7 +189,7 @@ test("the lines page through the X-Total-Count headers", async ({ page }) => {
   await expect.poll(() => sent.some((s) => s.path.endsWith("/lines") && s.query.get("page") === "2" && s.query.get("size") === "25")).toBe(true);
 });
 
-test("resolve an exception with a required note; it then shows the note, who and when, and can be noted again", async ({ page }) => {
+test("before maker-checker: resolve an exception with a required note; it then shows the note, who and when, and can be noted again", async ({ page }) => {
   const sent = await stub(page);
   await page.goto(`/reconciliation/${RUN_ID}`);
   await expect(rowOf(page, "l-1").getByRole("button")).toHaveCount(0);
@@ -188,9 +197,9 @@ test("resolve an exception with a required note; it then shows the note, who and
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Resolve RCPSTMT01");
   await expect(dialog).toContainText("The channel collected it, but it was never recorded here as paid.");
-  await expect(dialog.getByRole("button", { name: "Resolve" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Send for approval" })).toBeDisabled();
   await dialog.getByLabel("Note").fill("Callback lost; credited by hand, journal J-2211.");
-  await dialog.getByRole("button", { name: "Resolve" }).click();
+  await dialog.getByRole("button", { name: "Send for approval" }).click();
   await expect(page.getByText("Noted.")).toBeVisible();
   const post = sent.find((s) => s.method === "POST" && s.path.endsWith("/resolve"))!;
   expect(post.path).toBe(`/runs/${RUN_ID}/lines/l-4/resolve`);
@@ -206,7 +215,7 @@ test("a resolve refused for want of the key reads as a permission message", asyn
   await page.goto(`/reconciliation/${RUN_ID}`);
   await rowOf(page, "l-3").getByRole("button", { name: "Resolve" }).click();
   await page.getByRole("dialog").getByLabel("Note").fill("Checked.");
-  await page.getByRole("dialog").getByRole("button", { name: "Resolve" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Send for approval" }).click();
   await expect(page.getByRole("dialog")).toContainText("You do not have permission to run reconciliations.");
 });
 
@@ -247,4 +256,116 @@ test("a run that is not this institution's, and an omnichannel without reconcili
   await page.goto("/reconciliation");
   await expect(page.getByTestId("not-available")).toContainText("no cash-in reconciliation");
   await expect(page.getByRole("button", { name: "Upload statement" })).toHaveCount(0);
+});
+
+/* ---- Maker-checker (PR 152) ---- */
+
+const pick = (page: Page, id: string) => rowOf(page, id).getByTestId("line-pick");
+
+test("a resolve is sent for approval: 202 names the request, and the line waits with the proposed note and no Resolve", async ({ page }) => {
+  const sent = await stub(page, { staged: true });
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  await expect(page.getByTestId("run-tiles")).toContainText("open until a resolution is approved");
+  await rowOf(page, "l-4").getByRole("button", { name: "Resolve" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("A second person approves it");
+  await expect(dialog).toContainText("The line stays open, and counted in exceptions open, until someone other than you approves it.");
+  await dialog.getByLabel("Note").fill("Callback lost; credited by hand, journal J-2211.");
+  await dialog.getByRole("button", { name: "Send for approval" }).click();
+  await expect(page.getByText("Sent for approval as AP-10042. The line stays open until a second person approves.")).toBeVisible();
+  expect(sent.filter((s) => s.method === "POST").map((s) => s.path)).toEqual([`/runs/${RUN_ID}/lines/l-4/resolve`]);
+
+  const waiting = rowOf(page, "l-4").getByTestId("line-pending");
+  await expect(waiting).toContainText("Awaiting approval AP-10042");
+  await expect(waiting).toContainText("Callback lost; credited by hand, journal J-2211.");
+  await expect(waiting).toContainText("Proposed by staff:finance@ktda.test");
+  await expect(waiting.getByRole("link")).toHaveAttribute("href", "/approvals?open=AP-10042");
+  await expect(rowOf(page, "l-4").getByRole("button")).toHaveCount(0);
+  await expect(pick(page, "l-4")).toHaveCount(0);
+  // Still open until approved.
+  await expect(page.getByTestId("run-tiles")).toContainText("3");
+});
+
+test("a line already waiting: 409 APPROVAL_PENDING shows the request it waits in", async ({ page }) => {
+  await stub(page, { resolve: { status: 409, body: envelope(409, "Line RCPLEDGER is already waiting for approval in AP-10041", "APPROVAL_PENDING") } });
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  await rowOf(page, "l-3").getByRole("button", { name: "Resolve" }).click();
+  await page.getByRole("dialog").getByLabel("Note").fill("Checked.");
+  await page.getByRole("dialog").getByRole("button", { name: "Send for approval" }).click();
+  await expect(page.getByRole("dialog")).toContainText("already waiting for approval in AP-10041");
+});
+
+test("a resolved line names who proposed and who approved, with the request; checkboxes only on open exceptions", async ({ page }) => {
+  await stub(page, {
+    lines: [
+      ...LINES.slice(0, 3),
+      line("l-4", "STATEMENT_ONLY", {
+        statement: statement("RCPSTMT01", 2000), note: "Credited by hand.", resolvedBy: "staff:finance@ktda.test", resolvedAt: "2026-11-04T07:00:00Z",
+        approvedBy: "staff:admin@ktda.test", approvalReference: "AP-10039", pendingApproval: null,
+      }),
+      line("l-5", "AMOUNT_MISMATCH", {
+        statement: statement("RCPMISMAT", 1000), ledger: ledger("RCPMISMAT", 500),
+        pendingApproval: { reference: "AP-10040", note: "Fee taken by the channel.", proposedBy: "staff:finance@ktda.test", proposedAt: "2026-11-04T07:10:00Z" },
+      }),
+    ],
+  });
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  const note = rowOf(page, "l-4").getByTestId("line-note");
+  await expect(note).toContainText("Resolved by staff:finance@ktda.test, approved by staff:admin@ktda.test · AP-10039");
+  await expect(note.getByTestId("line-approval")).toHaveAttribute("href", "/approvals?open=AP-10039");
+  await expect(rowOf(page, "l-4").getByRole("button", { name: "Add a note" })).toBeVisible();
+  await expect(rowOf(page, "l-5").getByTestId("line-pending")).toContainText("Awaiting approval AP-10040");
+  await expect(rowOf(page, "l-5").getByRole("button")).toHaveCount(0);
+  for (const id of ["l-1", "l-2", "l-4", "l-5"]) await expect(pick(page, id)).toHaveCount(0);
+  await expect(pick(page, "l-3")).toBeVisible();
+});
+
+test("resolve selected: tick across tabs, one note, one POST /resolutions; the lines then wait", async ({ page }) => {
+  const sent = await stub(page, { staged: true });
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  await pick(page, "l-3").check();
+  await pick(page, "l-5").check();
+  await expect(page.getByTestId("selected-count")).toHaveText("2 selected");
+  await page.getByRole("tab", { name: /Statement only/ }).click();
+  await pick(page, "l-4").check();
+  await expect(page.getByTestId("selected-count")).toHaveText("3 selected");
+  await page.getByTestId("selection-bar").getByRole("button", { name: "Resolve selected" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Resolve 3 exceptions");
+  await expect(dialog).toContainText("The lines stay open");
+  await dialog.getByLabel("Note").fill("Settled with the channel, ticket 88.");
+  await dialog.getByRole("button", { name: "Send for approval" }).click();
+  await expect(page.getByText("Sent for approval as AP-10042. The lines stay open until a second person approves.")).toBeVisible();
+  const post = sent.find((s) => s.method === "POST")!;
+  expect(post.path).toBe(`/runs/${RUN_ID}/resolutions`);
+  expect(JSON.parse(post.body!)).toEqual({ lineIds: ["l-3", "l-5", "l-4"], note: "Settled with the channel, ticket 88." });
+  await expect(page.getByTestId("selection-bar")).toHaveCount(0);
+  await expect(rowOf(page, "l-4").getByTestId("line-pending")).toContainText("AP-10042");
+  await page.getByRole("tab", { name: /^All/ }).click();
+  await expect(rowOf(page, "l-3").getByTestId("line-pending")).toContainText("AP-10042");
+  await expect(page.getByLabel("Select the open exceptions on this page")).toBeDisabled();
+});
+
+test("the page's tick-all takes the open exceptions on it, at most 200; Clear drops them", async ({ page }) => {
+  const many = Array.from({ length: 205 }, (_, i) => line(`x-${i}`, "LEDGER_ONLY", { ledger: ledger(`RCPL${String(i).padStart(5, "0")}`, 100) }));
+  await stub(page, { lines: [LINES[0]!, ...many] });
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  await page.getByLabel("Select the open exceptions on this page").check();
+  await expect(page.getByTestId("selected-count")).toHaveText("200 selected");
+  await expect(page.getByTestId("selection-full")).toHaveText("At most 200 under one note.");
+  await expect(pick(page, "x-199")).toBeChecked();
+  await expect(pick(page, "x-200")).not.toBeChecked();
+  await expect(pick(page, "x-200")).toBeDisabled();
+  await page.getByTestId("selection-bar").getByRole("button", { name: "Clear" }).click();
+  await expect(page.getByTestId("selection-bar")).toHaveCount(0);
+  await expect(pick(page, "x-200")).toBeEnabled();
+});
+
+test("without act:reconciliation.run there are no checkboxes", async ({ page }) => {
+  await stubStaffMe(page, staffView({ permissions: ["page:reconciliation"] }));
+  await stub(page);
+  await page.goto(`/reconciliation/${RUN_ID}`);
+  await expect(rowOf(page, "l-3")).toBeVisible();
+  await expect(page.getByTestId("line-pick")).toHaveCount(0);
+  await expect(page.getByLabel("Select the open exceptions on this page")).toHaveCount(0);
 });

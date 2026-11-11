@@ -1,6 +1,7 @@
 /* Omnichannel's cash-in reconciliation (reconciliationContract.ts). */
 import { omniCall, OmniApiError, type Page } from "./omniApi";
 import { maybe, type Maybe } from "./omniMaybe";
+import { controlledPost } from "./api.approvals";
 import { STAFF_FORBIDDEN } from "./staffContract";
 import {
   FORBIDDEN_MESSAGE, RECONCILIATION_PATH,
@@ -33,8 +34,12 @@ export const reconciliationApi = {
     if (period.to) form.append("to", period.to);
     return permitted(omniCall.post<ReconciliationRun>(`${RECONCILIATION_PATH}/runs`, form));
   },
+  /** Propose closing one line: the approval request it staged (202), or the line, where this omnichannel resolves at once. */
   resolve: (id: string, lineId: string, note: string) =>
-    permitted(omniCall.post<ReconciliationLine>(`${run(id)}/lines/${encodeURIComponent(lineId)}/resolve`, { note })),
+    permitted(controlledPost<ReconciliationLine>(`${run(id)}/lines/${encodeURIComponent(lineId)}/resolve`, { note })),
+  /** Propose closing up to 200 lines of the run under one note and one approval. */
+  resolveMany: (id: string, lineIds: string[], note: string) =>
+    permitted(controlledPost<unknown>(`${run(id)}/resolutions`, { lineIds, note })),
   template: () => omniCall.download(`${RECONCILIATION_PATH}/template.csv`, "cash-in-statement-template.csv", "text/csv"),
   exceptions: (id: string) => omniCall.download(`${run(id)}/exceptions.csv`, `reconciliation-${id}-exceptions.csv`, "text/csv"),
 };

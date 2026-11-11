@@ -6,9 +6,11 @@ import { calendarDate, dateTime, label, money, units } from "../lib/tokenConsole
 import { ratePercent } from "../lib/merchantsAgentsContract";
 import { approvalsApi } from "../lib/api.approvals";
 import {
-  DETAILED_TYPES, targetLink,
+  DETAILED_TYPES, TARGET_KIND_LABEL, targetLink,
   type AgentDetails, type Approval, type BulkDecisionDetails, type ChannelAgentDetails, type FarmerDetails, type MerchantDetails,
+  type ReconciliationResolveDetails,
 } from "../lib/approvalsContract";
+import { OUTCOME_LABEL, OUTCOME_TONE, periodText, type ReconciliationOutcome } from "../lib/reconciliationContract";
 import { DetailItem } from "./tokenconsole/DetailItem";
 
 /* The approval drawer's "Details": the target as it stands now, from
@@ -45,12 +47,14 @@ export function ApprovalDetailsSection({ approval }: { approval: Approval }) {
     return (
       <section aria-label="Details" className="mb-4" data-testid="approval-details">
         <h3 className="mb-2 text-sm font-semibold text-text">Details</h3>
-        <p className="text-[12.5px] text-text-soft" data-testid="details-gone">The {label(approval.target.kind).toLowerCase()} is no longer on record. The request still shows.</p>
+        <p className="text-[12.5px] text-text-soft" data-testid="details-gone">The {(TARGET_KIND_LABEL[approval.target.kind] ?? label(approval.target.kind)).toLowerCase()} is no longer on record. The request still shows.</p>
       </section>
     );
   }
   const bulk = approval.type === "FARMER_KYC_BULK_DECISION" ? (d as BulkDecisionDetails) : null;
-  const open = approval.target.kind === "AGENT" ? `Open agent ${approval.target.reference}`
+  const recon = approval.type === "RECONCILIATION_RESOLVE" ? (d as ReconciliationResolveDetails) : null;
+  const open = recon ? "Open the run"
+    : approval.target.kind === "AGENT" ? `Open agent ${approval.target.reference}`
     : approval.target.kind === "MERCHANT" ? `Open merchant ${approval.target.reference}`
     : bulk ? "Open the KYC desk" : `Open farmer ${approval.target.reference}`;
 
@@ -58,9 +62,10 @@ export function ApprovalDetailsSection({ approval }: { approval: Approval }) {
     <section aria-label="Details" className="mb-4 rounded-[var(--radius-lg)] border border-border p-3" data-testid="approval-details">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-text">Details <span className="font-normal text-text-soft">as it stands now</span></h3>
-        <Link to={targetLink(approval.target, approval.type, bulk)} className="text-[12.5px] font-medium text-primary-600 hover:underline" data-testid="details-link">{open}</Link>
+        <Link to={targetLink(approval.target, approval.type, bulk ?? recon, approval.payload)} className="text-[12.5px] font-medium text-primary-600 hover:underline" data-testid="details-link">{open}</Link>
       </div>
-      {bulk ? <BulkBody d={bulk} />
+      {recon ? <ReconciliationBody d={recon} />
+        : bulk ? <BulkBody d={bulk} />
         : isType(approval, "KTDA_AGENT_") ? <ChannelAgentBody d={d as ChannelAgentDetails} />
         : isType(approval, "AGENT_") ? <AgentBody d={d as AgentDetails} />
         : isType(approval, "MERCHANT_") ? <MerchantBody d={d as MerchantDetails} />
@@ -204,6 +209,58 @@ function BulkBody({ d }: { d: BulkDecisionDetails }) {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+const amount = (v: number | null | undefined) => (v === null || v === undefined ? "—" : money(v, "KES"));
+
+/** RECONCILIATION_RESOLVE: the run, the proposed note, and both sides of each line it would close. */
+function ReconciliationBody({ d }: { d: ReconciliationResolveDetails }) {
+  return (
+    <>
+      <Grid>
+        <DetailItem term="Statement">{dash(d.fileName)}</DetailItem>
+        <DetailItem term="Period">{periodText(d)}</DetailItem>
+        <DetailItem term="Exceptions open in the run">{units(d.exceptionsOpen)}</DetailItem>
+      </Grid>
+      <p className="my-3 rounded-md border border-border bg-surface-sunken px-3 py-2 text-[13px] text-text" data-testid="details-note">
+        <span className="text-text-soft">Proposed note: </span>{dash(d.note)}
+      </p>
+      <div className="mb-1 text-[12px] text-text-soft">{units(d.lines.length)} {d.lines.length === 1 ? "line" : "lines"} it would close:</div>
+      <div className="max-h-72 overflow-auto rounded-md border border-border">
+        <table className="w-full text-[12px]" data-testid="details-lines">
+          <thead className="sticky top-0 bg-surface-sunken text-left text-text-soft">
+            <tr>
+              <th className="px-2 py-1.5 font-medium">Outcome</th>
+              <th className="border-l border-border px-2 py-1.5 font-medium">Statement ref.</th>
+              <th className="px-2 py-1.5 text-right font-medium">Amount</th>
+              <th className="px-2 py-1.5 font-medium">Paid at</th>
+              <th className="border-l border-border px-2 py-1.5 font-medium">Payment ref.</th>
+              <th className="px-2 py-1.5 text-right font-medium">Amount</th>
+              <th className="px-2 py-1.5 font-medium">Completed</th>
+              <th className="border-l border-border px-2 py-1.5 font-medium">Note now</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.lines.map((l) => {
+              const o = l.outcome as ReconciliationOutcome;
+              return (
+                <tr key={l.id} className="border-t border-border/60 align-top" data-line={l.id}>
+                  <td className="px-2 py-1"><Badge tone={OUTCOME_TONE[o] ?? "neutral"} className="whitespace-nowrap">{OUTCOME_LABEL[o] ?? label(l.outcome)}</Badge></td>
+                  <td className="border-l border-border/60 px-2 py-1 font-mono">{dash(l.statementReference)}</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right tabular">{amount(l.statementAmount)}</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-text-soft">{l.paidAt ? dateTime(l.paidAt) : "—"}</td>
+                  <td className="border-l border-border/60 px-2 py-1 font-mono">{dash(l.providerReference ?? l.paymentReference)}</td>
+                  <td className={`whitespace-nowrap px-2 py-1 text-right tabular ${o === "AMOUNT_MISMATCH" ? "font-semibold text-danger" : ""}`}>{amount(l.paymentAmount)}</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-text-soft">{l.completedAt ? dateTime(l.completedAt) : "—"}</td>
+                  <td className="border-l border-border/60 px-2 py-1">{l.resolved ? <Badge tone="success">Resolved</Badge> : null} {l.currentNote ?? (l.resolved ? "" : "—")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

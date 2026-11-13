@@ -11,7 +11,7 @@
  *   Clients/KYC  their detail pages (documents, UBOs, screening, activation)
  *                have no counterpart; Baracel Unyt's Investors and
  *                KYC desk show the real register and decide real reviews. */
-import { tokenConsole } from "./api.tokenConsole";
+import { tokenConsole, tokenConsolePages } from "./api.tokenConsole";
 import type { InvestmentOrder, OrderStatus } from "../mock";
 import type { Investor, OfferingResponse } from "./tokenConsole/types.gen";
 
@@ -59,20 +59,25 @@ export function getInvestmentOrders(): Promise<InvestmentOrder[]> {
 }
 
 async function fetchInvestmentOrders(): Promise<InvestmentOrder[]> {
-  // The books need only the offerings; the investor names are fetched
-  // alongside them rather than holding the books up.
-  const investorsReq = tokenConsole.investors();
-  // Observed below; this only stops a failed offerings call leaving it unhandled.
-  investorsReq.catch(() => undefined);
+  // The books need only the offerings; the investor names come after, for just
+  // the investors the orders actually name — never the whole register.
   const offerings = await tokenConsole.offerings();
-  const booksReq = Promise.all(
+  const books = await Promise.all(
     offerings.map(async (o: OfferingResponse) => {
       const id = o.offeringId ?? "";
       const [subs, reds] = await Promise.all([tokenConsole.subscriptions(id), tokenConsole.redemptions(id)]);
       return { o, subs, reds };
     }),
   );
-  const [investors, books] = await Promise.all([investorsReq, booksReq]);
+
+  // The ids referenced across every book; investorsByIds chunks them to the engine's limit.
+  const ids = new Set<string>();
+  for (const { subs, reds } of books) {
+    for (const s of subs) if (s.investorId) ids.add(s.investorId);
+    for (const r of reds) if (r.investorId) ids.add(r.investorId);
+  }
+  // A failed name lookup only leaves the names out, not the orders themselves.
+  const investors = await tokenConsolePages.investorsByIds([...ids]).catch(() => [] as Investor[]);
 
   const who = new Map<string, Investor>(investors.map((i) => [i.investorId ?? "", i]));
   const client = (investorId?: string) => {

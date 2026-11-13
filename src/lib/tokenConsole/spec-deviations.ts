@@ -146,3 +146,40 @@ export interface LoanViewActual extends LoanView {
 export interface RepayResultActual extends Omit<RepayResult, "loan"> {
   loan?: LoanViewActual;
 }
+
+/* 7. Console paging (apps/PAGINATION-CONTRACT.md, 2026-11-12).
+      ------------------------------------------------------------------
+      Built to the contract the engine is implementing now, ahead of the
+      regenerated spec. The list endpoints keep their row shapes and gain
+      filter params (q, status, productId, ids, …) that apply in the database
+      once page/size is sent; those are request-side and live in
+      api.tokenConsole.ts. The aggregate endpoints the types do not know yet:
+
+        GET /accounting/console/summary      ConsoleSummary
+        GET /accounting/contracts/summary    ContractsSummary (?productId=…, repeatable)
+
+      so no page has to read a whole table to show a total. Drop these once the
+      types are regenerated. */
+
+/** Status → how many, as the engine counts them. */
+export type StatusCounts = Partial<Record<string, number>>;
+
+/** One currency's books: every account in it and its total debits and credits. */
+export interface CurrencyTotals {
+  currency?: string | null;
+  accounts?: number;
+  totalDebit?: number;
+  totalCredit?: number;
+}
+
+export interface ConsoleSummary {
+  investors?: { total?: number; byStatus?: StatusCounts };
+  products?: { total?: number };
+  contracts?: { total?: number; byStatus?: StatusCounts };
+  booksByCurrency?: CurrencyTotals[];
+}
+
+export interface ContractsSummary {
+  total?: number;
+  byStatus?: StatusCounts;
+}

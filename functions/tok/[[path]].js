@@ -40,7 +40,9 @@ export async function onRequest({ request, env }) {
   if (upstream.status >= 520 && upstream.status <= 530) return unavailable();
 
   const out = new Headers();
-  for (const name of ["content-type", "retry-after"]) {
+  // The X-* totals are how a paged list says how many rows there are
+  // (api/ListPaging.java); without them the client cannot page and throws.
+  for (const name of ["content-type", "retry-after", "x-total-count", "x-page", "x-size", "x-total-pages"]) {
     const value = upstream.headers.get(name);
     if (value !== null) out.set(name, value);
   }

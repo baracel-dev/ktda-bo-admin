@@ -1,4 +1,6 @@
-import { Badge, Button, DataTable, GlassPanel, NotePanel, SectionTitle, Skeleton, type Column } from "../../ui";
+import clsx from "clsx";
+import { Badge, Button, DataTable, GlassPanel, NotePanel, Pagination, SectionTitle, Skeleton, type Column } from "../../ui";
+import type { ServerPaging } from "../../lib/useServerList";
 import type { ReactNode } from "react";
 import { label, toneFor } from "../../lib/tokenConsole/format";
 
@@ -58,7 +60,8 @@ function withIds<T>(rows: T[], rowId: (row: T) => string | null | undefined): Ro
  * source shows its own error and retry without blanking the rest of the page.
  */
 export function ConsoleTable<T extends object>({
-  title, description, actions, what, source, rows, newest, rowId, columns, emptyLabel, onRowClick, selectedId, className = "mb-6",
+  title, description, actions, what, source, rows, newest, rowId, columns, emptyLabel, onRowClick, selectedId, paging, toolbar,
+  className = "mb-6",
 }: {
   title?: string;
   description?: ReactNode;
@@ -77,25 +80,49 @@ export function ConsoleTable<T extends object>({
   onRowClick?: (row: Row<T>) => void;
   /** Highlights the row whose rowId matches — master-detail lists. */
   selectedId?: string | null;
+  /** A list its service pages (useServerList): the rows are one page, the
+   *  pager asks for the next. Leave out `newest` with it — sorting in the
+   *  browser would reorder just the page on show. */
+  paging?: ServerPaging;
+  /** Search and filters, between the title and the table; they stay put while
+   *  the list loads or fails, so a search that failed can be changed. */
+  toolbar?: ReactNode;
   className?: string;
 }) {
+  const refreshing = !!paging?.loading && !!source.data;
   return (
     <section className={className}>
       {title && <SectionTitle title={title} description={description} actions={actions} />}
+      {toolbar}
       {source.error ? (
         <SourceError what={what} error={source.error} onRetry={source.reload} className="" />
       ) : source.loading && !source.data ? (
         <Skeleton className="h-40" />
       ) : (
         <GlassPanel className="p-1" sheen={false}>
-          <DataTable
-            columns={columns}
-            rows={withIds(rows ?? source.data ?? [], rowId)}
-            newest={newest}
-            emptyLabel={emptyLabel}
-            onRowClick={onRowClick}
-            selectedId={selectedId}
-          />
+          {/* The page on show stays while the next one loads, dimmed, so nothing flashes empty. */}
+          <div aria-busy={refreshing || undefined} className={clsx("transition-opacity duration-150", refreshing && "opacity-60")}>
+            <DataTable
+              columns={columns}
+              rows={withIds(rows ?? source.data ?? [], rowId)}
+              newest={paging ? undefined : newest}
+              emptyLabel={emptyLabel}
+              onRowClick={onRowClick}
+              selectedId={selectedId}
+              paged={!paging}
+              footer={paging && (
+                <Pagination
+                  className="px-3 pt-3 pb-2"
+                  page={paging.page}
+                  pageSize={paging.pageSize}
+                  total={paging.total}
+                  disabled={paging.loading}
+                  onPage={paging.onPage}
+                  onPageSize={paging.onPageSize}
+                />
+              )}
+            />
+          </div>
         </GlassPanel>
       )}
     </section>

@@ -89,10 +89,9 @@ async function parse<T>(res: Response, isAuthCall: boolean): Promise<T> {
   throw new TokApiError(res.status, message, framework);
 }
 
-async function send<T>(method: string, path: string, body?: unknown, contentType?: string): Promise<T> {
-  let res: Response;
+async function request(method: string, path: string, body?: unknown, contentType?: string): Promise<Response> {
   try {
-    res = await fetch(`${TOK_BASE}${path}`, {
+    return await fetch(`${TOK_BASE}${path}`, {
       method,
       credentials: "include",
       headers: body !== undefined ? { "Content-Type": contentType ?? "application/json" } : {},
@@ -101,11 +100,40 @@ async function send<T>(method: string, path: string, body?: unknown, contentType
   } catch {
     throw new TokApiError(0, "Cannot reach the tokenization service. Check your connection and try again.");
   }
-  return parse<T>(res, path.startsWith("/auth/"));
+}
+
+async function send<T>(method: string, path: string, body?: unknown, contentType?: string): Promise<T> {
+  return parse<T>(await request(method, path, body, contentType), path.startsWith("/auth/"));
+}
+
+/** One page of a list, and how many there are: the same shape as omnichannel's (omniApi.ts). */
+export type Page<T> = { items: T[]; page: number; pages: number; total: number };
+
+/** The engine pages any list on `page`/`size` (api/ListPaging.java, and in the
+ *  database for the big ones — apps/PAGINATION-CONTRACT.md): the body stays an
+ *  array and the totals come in X-Total-Count / X-Total-Pages. */
+async function getPage<T>(path: string, page: number, size: number): Promise<Page<T>> {
+  const res = await request("GET", `${path}${path.includes("?") ? "&" : "?"}page=${page}&size=${size}`);
+  const body = await parse<unknown>(res, false);
+  const items = Array.isArray(body) ? (body as T[]) : [];
+  const num = (name: string) => {
+    const raw = res.headers.get(name);
+    const v = Number(raw);
+    return raw !== null && raw.trim() !== "" && Number.isFinite(v) ? v : null;
+  };
+  const total = num("X-Total-Count");
+  // No total means something between here and the engine dropped the paging
+  // headers (a proxy that does not forward them). Treating the page as the
+  // whole list would show 20 rows as "20 in total", so say so instead.
+  if (total === null) {
+    throw new TokApiError(res.status, "The list came back without its page totals (X-Total-Count), so it can't be paged. The proxy in front of the tokenization service must forward the X-Total-* headers.");
+  }
+  return { items, page: num("X-Page") ?? page, pages: num("X-Total-Pages") ?? Math.ceil(total / size), total };
 }
 
 export const tokApi = {
   get: <T>(path: string) => send<T>("GET", path),
+  getPage,
   post: <T>(path: string, body?: unknown) => send<T>("POST", path, body ?? {}),
   put: <T>(path: string, body?: unknown) => send<T>("PUT", path, body ?? {}),
   del: <T>(path: string) => send<T>("DELETE", path),
@@ -117,10 +145,13 @@ export const tokApi = {
 
 /** Query string that drops empty params: the backend reads `?status=` as an
  *  empty value, not "unset", and answers with nothing. */
-export function qs(params: Record<string, string | number | boolean | undefined | null>) {
+export function qs(params: Record<string, string | number | boolean | readonly string[] | undefined | null>) {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
+    // A list is a repeatable param (`?status=A&status=B`).
+    if (Array.isArray(v)) {
+      for (const one of v) if (one !== "") sp.append(k, one);
+    } else if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
   }
   const s = sp.toString();
   return s ? `?${s}` : "";

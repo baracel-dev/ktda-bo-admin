@@ -13,7 +13,7 @@
  * api.ts must not end up with two different getProducts. */
 import { qs, tokApi } from "./tokApi";
 import type * as T from "./tokenConsole/types.gen";
-import type { AssetBackingRowActual, CreateAccrualPolicyBody, CreateDistributionPolicyBody, LoanViewActual, RepayResultActual } from "./tokenConsole/spec-deviations";
+import type { AssetBackingRowActual, ConsoleSummary, ContractsSummary, CreateAccrualPolicyBody, CreateDistributionPolicyBody, LoanViewActual, RepayResultActual } from "./tokenConsole/spec-deviations";
 import type { ChangePayload, ChangeStatus, ChangeType, ConfigChange } from "./tokenConsole/configChanges";
 import type { BondTerms, MarketQuote } from "./tokenConsole/prices";
 
@@ -25,6 +25,51 @@ const del = <R>(path: string) => tokApi.del<R>(`${A}${path}`);
 const seg = (id: string) => encodeURIComponent(id);
 
 export type JournalFilter = { account?: string; product?: string; offering?: string };
+
+/* Server-paged reads (apps/PAGINATION-CONTRACT.md). The engine filters, sorts
+   and pages these in the database once page/size is sent, so a page never
+   reads a whole 600k-row table; every one answers Page<T> from the X-Total-*
+   headers. `q` is trimmed there and empty means no filter. */
+export type InvestorQuery = { q?: string; status?: readonly string[]; category?: string };
+export type ContractQuery = { q?: string; productId?: readonly string[]; status?: readonly string[]; investorId?: string };
+
+/** The engine takes at most this many ids per lookup. */
+export const IDS_PER_LOOKUP = 100;
+
+const page = <R>(path: string, query: Parameters<typeof qs>[0], p: number, size: number) =>
+  tokApi.getPage<R>(`${A}${path}${qs(query)}`, p, size);
+
+/** Investors by id, however many: chunked to the engine's limit, at most four
+ *  calls at a time. The engine refuses a whole chunk (400) for one id that is
+ *  not an investor id, so a failed chunk only leaves its own names out; the
+ *  lookup fails only when every chunk did. */
+async function investorsByIds(ids: readonly string[]): Promise<T.Investor[]> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += IDS_PER_LOOKUP) chunks.push(unique.slice(i, i + IDS_PER_LOOKUP));
+  const out: T.Investor[] = [];
+  let failure: unknown = null;
+  let failed = 0;
+  for (let i = 0; i < chunks.length; i += 4) {
+    const batch = await Promise.allSettled(chunks.slice(i, i + 4).map((c) => get<T.Investor[]>(`/investors${qs({ ids: c.join(",") })}`)));
+    for (const r of batch) {
+      if (r.status === "fulfilled") out.push(...(r.value ?? []));
+      else { failed++; failure ??= r.reason; }
+    }
+  }
+  if (chunks.length > 0 && failed === chunks.length) throw failure;
+  return out;
+}
+
+export const tokenConsolePages = {
+  investors: (query: InvestorQuery, p: number, size: number) => page<T.Investor>("/investors", query, p, size),
+  investorsByIds,
+  contracts: (query: ContractQuery, p: number, size: number) => page<T.InvestorContract>("/contracts", query, p, size),
+
+  // Aggregates the engine counts, so no page has to read a whole table to show a total.
+  consoleSummary: () => get<ConsoleSummary>("/console/summary"),
+  contractsSummary: (productId: readonly string[]) => get<ContractsSummary>(`/contracts/summary${qs({ productId })}`),
+};
 
 export const tokenConsole = {
   // The books
@@ -44,8 +89,7 @@ export const tokenConsole = {
   postEvent: (body: T.PostEventRequest) => post<T.PostingReceipt>("/events", body),
   reconciliationFor: (productId: string) => get<T.ReconciliationResult>(`/reconciliation/${seg(productId)}`),
 
-  // Investors
-  investors: () => get<T.Investor[]>("/investors"),
+  // Investors (the whole register is read a page at a time — tokenConsolePages.investors)
   onboardInvestor: (body: T.OnboardInvestorRequest) => post<T.OnboardResult>("/investors", body),
   investor: (id: string) => get<T.InvestorView>(`/investors/${seg(id)}`),
   investorBalances: (id: string) => get<T.InvestorBalancesView>(`/investors/${seg(id)}/balances`),
@@ -62,8 +106,7 @@ export const tokenConsole = {
   clearReview: (queueId: string, body: T.NoteRequest) => post<T.InvestorView>(`/compliance/reviews/${seg(queueId)}/clear`, body),
   rejectReview: (queueId: string, body: T.NoteRequest) => post<T.InvestorView>(`/compliance/reviews/${seg(queueId)}/reject`, body),
 
-  // Accounts (contracts) and loans
-  contracts: () => get<T.InvestorContract[]>("/contracts"),
+  // Accounts (contracts) and loans (the whole table is read a page at a time — tokenConsolePages.contracts)
   openAccount: (body: T.OpenAccountRequest) => post<T.OpenAccountResult>("/accounts", body),
   account: (contractId: string) => get<T.AccountView>(`/accounts/${seg(contractId)}`),
   withdrawable: (contractId: string) => get<T.WithdrawalView>(`/accounts/${seg(contractId)}/withdrawable`),

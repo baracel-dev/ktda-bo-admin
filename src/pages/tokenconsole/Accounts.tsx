@@ -1,16 +1,29 @@
 import { useState } from "react";
-import { Button, DataTable, Field, Input, Modal, NotePanel, PageHeader, useToast } from "../../ui";
-import { tokenConsole } from "../../lib/api";
+import { Button, DataTable, Field, FilterBar, Input, Modal, NotePanel, PageHeader, SearchInput, SelectFilter, useToast } from "../../ui";
+import { tokenConsole, tokenConsolePages } from "../../lib/api";
 import { useAsyncData } from "../../lib/useAsyncData";
-import { calendarDate, dateTime, money } from "../../lib/tokenConsole/format";
+import { useServerList } from "../../lib/useServerList";
+import { calendarDate, counted, dateTime, money } from "../../lib/tokenConsole/format";
 import { useAction } from "../../lib/tokenConsole/useAction";
 import type { InvestorContract } from "../../lib/tokenConsole/types.gen";
 import { Code, ConsoleTable, StatusBadge } from "../../components/tokenconsole/ConsoleTable";
 import { DetailItem } from "../../components/tokenconsole/DetailItem";
 import { ActionModal, isPositive } from "../../components/tokenconsole/ActionModal";
 
+const STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "FROZEN", label: "Frozen" },
+  { value: "CLOSED", label: "Closed" },
+];
+
+/** Contracts are searched, filtered and paged by the engine, newest opened first. */
 export default function TokenConsoleAccounts() {
-  const contracts = useAsyncData(tokenConsole.contracts);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const contracts = useServerList(
+    ({ page, size, q, filters }) => tokenConsolePages.contracts({ q, status: filters.status }, page, size),
+    { q, filters: { status: status === "all" ? [] : [status] } },
+  );
   const [open, setOpen] = useState<string | null>(null);
 
   return (
@@ -22,10 +35,20 @@ export default function TokenConsoleAccounts() {
       />
       <ConsoleTable<InvestorContract>
         what="accounts"
-        newest={(r) => r.openedAt}
-        source={contracts}
+        source={contracts.source}
+        paging={contracts.paging}
         rowId={(r) => r.contractId}
-        emptyLabel="No accounts open"
+        title="Contracts"
+        description={contracts.rows
+          ? `${counted(contracts.total, "account")}${contracts.filtered ? " match" : ", newest opened first"}`
+          : undefined}
+        toolbar={
+          <FilterBar className="mb-3">
+            <SearchInput value={q} onChange={setQ} placeholder="Contract id or investor…" className="w-full sm:w-72" />
+            <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
+          </FilterBar>
+        }
+        emptyLabel={contracts.filtered ? "No account matches that" : "No accounts open"}
         onRowClick={(r) => setOpen(r.contractId ?? null)}
         columns={[
           { key: "contract", header: "Contract", render: (r) => <Code>{r.contractId}</Code> },
@@ -38,7 +61,7 @@ export default function TokenConsoleAccounts() {
       />
       <Modal open={!!open} onClose={() => setOpen(null)} title={`Account ${open ?? ""}`} size="lg">
         {/* Keyed so an amount typed for one account never carries to the next. */}
-        {open && <AccountPanel key={open} contractId={open} onChanged={() => void contracts.reload()} />}
+        {open && <AccountPanel key={open} contractId={open} onChanged={contracts.reload} />}
       </Modal>
     </div>
   );

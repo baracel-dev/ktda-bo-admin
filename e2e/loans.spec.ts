@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 import { json, signIn } from "./stubs";
 
 /* Baracel Unyt → Loans against a stubbed engine (/tok/accounting/loans/*).
@@ -18,16 +18,52 @@ const view = (b: Book) => ({
   pendingApproval: false, ...RATE,
 });
 
+/** A page of `items` with the engine's X-Total-* headers, so tokApi.getPage reads it. */
+const pagedJson = (route: Route, items: unknown[]) =>
+  route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify(items),
+    headers: { "X-Total-Count": String(items.length), "X-Total-Pages": String(items.length ? 1 : 0), "X-Page": "1", "X-Size": "20" },
+  });
+
 async function stubConsole(page: Page) {
   await page.route(/\/tok\/accounting\/products$/, (route) => json(route, [
     { productId: "LOAN-KES-TERM", name: "KES Term Loan", currency: "KES", assetClass: "LOAN" },
     { productId: "BRF-KES-INC", name: "BRF-KES Income Fund", currency: "KES", assetClass: "BOND" },
   ]));
-  await page.route(/\/tok\/accounting\/contracts$/, (route) => json(route, [
+  // Contracts are server-paged and filtered by the engine. Loans asks only for
+  // the loan products (productId=LOAN-KES-TERM), so the fund account is left out.
+  const allContracts = [
     { contractId: LOAN, investorRef: "INV-77", productId: "LOAN-KES-TERM", currency: "KES", contractStatus: "ACTIVE", openedAt: "2026-10-29" },
     { contractId: "AC-FUND-1", investorRef: "INV-77", productId: "BRF-KES-INC", currency: "KES", contractStatus: "ACTIVE", openedAt: "2026-10-29" },
-  ]));
-  await page.route(/\/tok\/accounting\/investors$/, (route) => json(route, []));
+  ];
+  await page.route(/\/tok\/accounting\/contracts(\?.*)?$/, (route) => {
+    const sp = new URL(route.request().url()).searchParams;
+    const productIds = sp.getAll("productId");
+    const statuses = sp.getAll("status");
+    const q = (sp.get("q") ?? "").trim().toLowerCase();
+    const items = allContracts.filter((c) =>
+      (productIds.length === 0 || productIds.includes(c.productId)) &&
+      (statuses.length === 0 || statuses.includes(c.contractStatus)) &&
+      (q === "" || c.contractId.toLowerCase().includes(q) || c.investorRef.toLowerCase().includes(q)));
+    return pagedJson(route, items);
+  });
+  // Loans' stat tiles ask the engine to count the loan accounts.
+  await page.route(/\/tok\/accounting\/contracts\/summary(\?.*)?$/, (route) =>
+    json(route, { total: 1, byStatus: { ACTIVE: 1, CLOSED: 0 } }));
+  // The "open loan account" form's borrower field is a server-search InvestorPicker:
+  // it searches the register (paged) and resolves a chosen id via ?ids=.
+  const activeInvestors = [
+    { investorId: "INV-77", institutionId: "INST-KE", externalRef: "APP-77", displayName: "Wanjiru Kamau", investorCategory: "INDIVIDUAL", lifecycleStatus: "ACTIVE", onboardedAt: "2026-10-28T08:00:00Z" },
+  ];
+  await page.route(/\/tok\/accounting\/investors(\?.*)?$/, (route) => {
+    const sp = new URL(route.request().url()).searchParams;
+    const ids = sp.get("ids");
+    if (ids) return json(route, activeInvestors.filter((i) => ids.split(",").includes(i.investorId)));
+    const q = (sp.get("q") ?? "").trim().toLowerCase();
+    const items = activeInvestors.filter((i) =>
+      q === "" || i.displayName.toLowerCase().includes(q) || i.externalRef.toLowerCase().includes(q) || i.investorId.toLowerCase().includes(q));
+    return pagedJson(route, items);
+  });
 }
 
 /** The loan endpoints over `book`; every write is recorded in `sent`. */

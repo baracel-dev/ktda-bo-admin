@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HandCoins, Plus } from "lucide-react";
-import { Button, Field, GlassStat, Input, Modal, NotePanel, PageHeader, Select, StatRail, useToast } from "../../ui";
-import { tokenConsole } from "../../lib/api";
+import { Button, Field, FilterBar, GlassStat, Input, Modal, NotePanel, PageHeader, SearchInput, Select, SelectFilter, StatRail, useToast } from "../../ui";
+import { tokenConsole, tokenConsolePages } from "../../lib/api";
 import { TokApiError } from "../../lib/tokApi";
 import { useAsyncData } from "../../lib/useAsyncData";
-import { label, money, percent } from "../../lib/tokenConsole/format";
+import { useServerList } from "../../lib/useServerList";
+import { counted, label, money, percent } from "../../lib/tokenConsole/format";
 import { useAction } from "../../lib/tokenConsole/useAction";
 import type { InvestorContract } from "../../lib/tokenConsole/types.gen";
 import { Code, ConsoleTable, StatusBadge } from "../../components/tokenconsole/ConsoleTable";
+import { InvestorPicker } from "../../components/tokenconsole/Pickers";
 
 /** A blank or non-positive entry is not an amount; the backend should never see one. */
 const positive = (s: string) => s.trim() !== "" && Number.isFinite(Number(s)) && Number(s) > 0;
@@ -36,20 +38,32 @@ const loanApi = {
   close: explainMissing(tokenConsole.closeLoan),
 };
 
+const STATUS_OPTIONS = ["PENDING", "ACTIVE", "SETTLED", "FROZEN", "CLOSED"].map((value) => ({ value, label: label(value) }));
+const ACTIVE_ONLY = ["ACTIVE"];
+
 export default function TokenConsoleLoans() {
   const toast = useToast();
   const products = useAsyncData(tokenConsole.products);
-  const contracts = useAsyncData(tokenConsole.contracts);
-  const investors = useAsyncData(tokenConsole.investors);
   const openAccount = useAction(tokenConsole.openAccount);
 
   const loanProducts = useMemo(() => (products.data ?? []).filter((p) => p.assetClass === "LOAN"), [products.data]);
-  const loanProductIds = useMemo(() => new Set(loanProducts.map((p) => p.productId)), [loanProducts]);
-  const loanAccounts = useMemo(
-    () => (contracts.data ?? []).filter((c) => c.productId && loanProductIds.has(c.productId)),
-    [contracts.data, loanProductIds],
+  const loanProductIds = useMemo(
+    () => loanProducts.map((p) => p.productId).filter((id): id is string => !!id).sort(),
+    [loanProducts],
   );
-  const activeInvestors = (investors.data ?? []).filter((i) => i.lifecycleStatus === "ACTIVE");
+  // No loan product means no loan account; asking without a productId would list every contract.
+  const hasLoanProducts = loanProductIds.length > 0;
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const contracts = useServerList(
+    ({ page, size, q, filters }) => tokenConsolePages.contracts({ q, productId: filters.productId, status: filters.status }, page, size),
+    { q, filters: { productId: loanProductIds, status: status === "all" ? [] : [status] }, enabled: hasLoanProducts },
+  );
+  const tilesKey = loanProductIds.join(",");
+  const tiles = useAsyncData(() => (hasLoanProducts ? tokenConsolePages.contractsSummary(loanProductIds) : Promise.resolve(null)));
+  // The loan products arrive after the first (empty) read.
+  const reloadTiles = tiles.reload;
+  useEffect(() => { if (tilesKey) void reloadTiles(); }, [tilesKey, reloadTiles]);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
@@ -65,22 +79,29 @@ export default function TokenConsoleLoans() {
     openAccount.reset();
   };
 
+  const refresh = () => {
+    contracts.reload();
+    void tiles.reload();
+  };
+
   const submitOpen = async () => {
     const r = await openAccount.run({ investorId, productId, contractId: contractId.trim() || undefined });
     if (!r) return;
     toast.push(`Opened loan account ${r.contractId ?? ""}.`);
     closeOpenForm();
-    void contracts.reload();
+    refresh();
     setSelected(r.contractId ?? null);
   };
 
-  // The account list is contracts filtered by product, so it needs both.
+  // The account list is contracts filtered by the loan products, so it needs both.
   const source = {
-    data: products.data && contracts.data ? loanAccounts : null,
+    data: products.data ? contracts.rows : null,
     loading: products.loading || contracts.loading,
     error: products.error ?? contracts.error,
-    reload: () => Promise.all([products.reload(), contracts.reload()]).then(() => undefined),
+    reload: () => { void products.reload(); contracts.reload(); },
   };
+  const t = tiles.data;
+  const tile = (n: number | undefined) => (tiles.error || !products.data ? "—" : !hasLoanProducts ? 0 : t ? n ?? 0 : "…");
 
   return (
     <div>
@@ -93,19 +114,26 @@ export default function TokenConsoleLoans() {
 
       <StatRail className="mb-6">
         <GlassStat label="Loan products" value={products.data ? loanProducts.length : "—"} icon={<HandCoins size={16} />} tone="primary" />
-        <GlassStat label="Loan accounts" value={source.data ? loanAccounts.length : "—"} />
-        <GlassStat label="Active" value={source.data ? loanAccounts.filter((c) => c.contractStatus === "ACTIVE").length : "—"} tone="success" emphasis={false} />
-        <GlassStat label="Closed" value={source.data ? loanAccounts.filter((c) => c.contractStatus === "CLOSED").length : "—"} />
+        <GlassStat label="Loan accounts" value={tile(t?.total)} hint={tiles.error ? `Totals unavailable: ${tiles.error}` : undefined} />
+        <GlassStat label="Active" value={tile(t?.byStatus?.ACTIVE)} tone="success" emphasis={false} />
+        <GlassStat label="Closed" value={tile(t?.byStatus?.CLOSED)} />
       </StatRail>
 
       <ConsoleTable<InvestorContract>
         title="Loan accounts"
+        description={source.data && hasLoanProducts ? `${counted(contracts.total, "account")}${contracts.filtered ? " match" : ", newest opened first"}` : undefined}
         what="loan accounts"
-        newest={(r) => r.openedAt}
         source={source}
+        paging={contracts.paging}
         rowId={(r) => r.contractId}
         onRowClick={(r) => setSelected(r.contractId ?? null)}
-        emptyLabel="No loan accounts yet — open one to begin"
+        toolbar={hasLoanProducts && (
+          <FilterBar className="mb-3">
+            <SearchInput value={q} onChange={setQ} placeholder="Account id or borrower…" className="w-full sm:w-72" />
+            <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
+          </FilterBar>
+        )}
+        emptyLabel={contracts.filtered ? "No loan account matches that" : "No loan accounts yet — open one to begin"}
         columns={[
           { key: "account", header: "Account", render: (r) => <Code>{r.contractId}</Code> },
           { key: "borrower", header: "Borrower", render: (r) => r.investorRef ?? "—" },
@@ -130,11 +158,8 @@ export default function TokenConsoleLoans() {
       >
         <p className="mb-4 text-sm text-text-soft">Originate a loan for a borrower against a loan product.</p>
         <div className="grid gap-4">
-          <Field label="Borrower (investor)" required hint="Only active investors can borrow.">
-            <Select value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
-              <option value="">{investors.loading ? "Loading…" : "Select…"}</option>
-              {activeInvestors.map((i) => <option key={i.investorId} value={i.investorId}>{i.displayName ?? i.externalRef ?? i.investorId}</option>)}
-            </Select>
+          <Field label="Borrower (investor)" required group hint="Only active investors can borrow. Search by name, reference or id.">
+            <InvestorPicker value={investorId} onChange={setInvestorId} filters={{ status: ACTIVE_ONLY }} placeholder="Search for a borrower…" />
           </Field>
           <Field
             label="Loan product"
@@ -150,15 +175,15 @@ export default function TokenConsoleLoans() {
             <Input value={contractId} onChange={(e) => setContractId(e.target.value)} placeholder="Auto" />
           </Field>
         </div>
-        {(investors.error || products.error) && (
-          <NotePanel tone="warning" className="mt-4">Some lists could not be loaded: {investors.error ?? products.error}</NotePanel>
+        {products.error && (
+          <NotePanel tone="warning" className="mt-4">The loan products could not be loaded: {products.error}</NotePanel>
         )}
         {openAccount.error && <NotePanel tone="danger" className="mt-4">{openAccount.error}</NotePanel>}
       </Modal>
 
       <Modal open={!!selected} onClose={() => setSelected(null)} title={`Loan ${selected ?? ""}`} size="lg">
         {/* Keyed so typed amounts and errors never carry over to another loan. */}
-        {selected && <LoanPanel key={selected} contractId={selected} onChanged={() => void contracts.reload()} />}
+        {selected && <LoanPanel key={selected} contractId={selected} onChanged={refresh} />}
       </Modal>
     </div>
   );

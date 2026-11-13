@@ -29,6 +29,11 @@ export function EntityPicker({
   loading,
   id,
   emptyLabel = "No matches",
+  onQueryChange,
+  onOpenChange,
+  selectedOption,
+  searching = false,
+  note,
 }: {
   options: PickerOption[];
   value: string | null;
@@ -38,27 +43,53 @@ export function EntityPicker({
   loading?: boolean;
   id?: string;
   emptyLabel?: string;
+  /** Server search: the options are already the matches for what was typed,
+   *  so they are not filtered here; this hears every change to the search. */
+  onQueryChange?: (query: string) => void;
+  /** Server search reads only while the list is open. */
+  onOpenChange?: (open: boolean) => void;
+  /** Server search: the chosen record, which need not be among the matches on show. */
+  selectedOption?: PickerOption | null;
+  /** A search is on its way. */
+  searching?: boolean;
+  /** Under the options, e.g. that only the first matches are shown. */
+  note?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const selected = options.find((o) => o.id === value) ?? null;
+  const server = onQueryChange !== undefined;
+  const selected = (value !== null && selectedOption?.id === value ? selectedOption : null)
+    ?? options.find((o) => o.id === value) ?? null;
 
+  // Read through a ref, so the document listeners below need not be re-bound for a new callback.
+  const listeners = useRef({ onQueryChange, onOpenChange });
+  listeners.current = { onQueryChange, onOpenChange };
+  const changeQuery = (q: string) => {
+    setQuery(q);
+    listeners.current.onQueryChange?.(q);
+  };
+  const openList = () => {
+    setOpen(true);
+    listeners.current.onOpenChange?.(true);
+  };
   // Closing always clears the filter, so reopening never shows a stale search.
   const close = () => {
     setOpen(false);
     setQuery("");
+    listeners.current.onQueryChange?.("");
+    listeners.current.onOpenChange?.(false);
   };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
+    if (!q || server) return options;
     // Match the id too: an operator holding a UUID from a log can paste it.
     return options.filter(
       (o) => o.label.toLowerCase().includes(q) || o.meta?.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
     );
-  }, [options, query]);
+  }, [options, query, server]);
 
   useEffect(() => {
     if (!open) return;
@@ -87,7 +118,7 @@ export function EntityPicker({
         type="button"
         id={id}
         disabled={disabled || loading}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => (open ? close() : openList())}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={clsx(
@@ -109,12 +140,13 @@ export function EntityPicker({
             <input
               autoFocus
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => changeQuery(e.target.value)}
               placeholder="Search by name or id…"
+              aria-label="Search"
               className="w-full bg-transparent text-[13px] text-text placeholder:text-text-faint focus:outline-none"
             />
           </div>
-          <ul role="listbox" className="max-h-60 overflow-y-auto py-1">
+          <ul role="listbox" className={clsx("overflow-y-auto py-1", server ? "max-h-52" : "max-h-60")}>
             {value !== null && (
               <li>
                 <button
@@ -129,7 +161,9 @@ export function EntityPicker({
                 </button>
               </li>
             )}
-            {filtered.length === 0 && <li className="px-3 py-4 text-center text-[13px] text-text-faint">{emptyLabel}</li>}
+            {filtered.length === 0 && (
+              <li className="px-3 py-4 text-center text-[13px] text-text-faint" role="status">{searching ? "Searching…" : emptyLabel}</li>
+            )}
             {filtered.map((o) => (
               <li key={o.id}>
                 <button
@@ -159,6 +193,11 @@ export function EntityPicker({
               </li>
             ))}
           </ul>
+          {(note || (searching && filtered.length > 0)) && (
+            <div className="border-t border-border px-3 py-1.5 text-[11.5px] text-text-faint" role="status">
+              {searching && filtered.length > 0 ? "Searching…" : note}
+            </div>
+          )}
         </div>
       )}
     </div>

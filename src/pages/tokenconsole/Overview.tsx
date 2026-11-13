@@ -4,7 +4,7 @@ import {
   formatDateTime, type Column,
 } from "../../ui";
 import { Scale, Users, Boxes, GitCompareArrows } from "lucide-react";
-import { tokenConsole } from "../../lib/api";
+import { tokenConsole, tokenConsolePages } from "../../lib/api";
 import type { LedgerEntryView, ReconciliationResult } from "../../lib/tokenConsole/types.gen";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { booksByCurrency, outOfBalance } from "../../lib/tokenConsole/books";
@@ -26,7 +26,8 @@ type ReconRow = ReconciliationResult & { id: string };
 export default function TokenConsoleOverview() {
   const tb = useAsyncData(tokenConsole.trialBalance);
   const recon = useAsyncData(tokenConsole.reconciliation);
-  const investors = useAsyncData(tokenConsole.investors);
+  // The register is far too big to read whole for a number; the engine counts it.
+  const summary = useAsyncData(tokenConsolePages.consoleSummary);
   const products = useAsyncData(tokenConsole.products);
   const journals = useAsyncData(tokenConsole.journals);
 
@@ -48,7 +49,7 @@ export default function TokenConsoleOverview() {
     [journals.data],
   );
 
-  const firstLoad = tb.loading && !tb.data && recon.loading && investors.loading && products.loading && journals.loading;
+  const firstLoad = tb.loading && !tb.data && recon.loading && summary.loading && products.loading && journals.loading;
   if (firstLoad) return <Skeleton className="h-96" />;
 
   const booksValue = tb.error ? "—"
@@ -111,13 +112,13 @@ export default function TokenConsoleOverview() {
           icon={<GitCompareArrows size={17} />}
           tone={recon.error || recon.loading || !recon.data?.length ? "neutral" : breaks.length ? "warning" : "success"}
           hint={!recon.error && !recon.loading && !recon.data?.length ? "no products to reconcile yet" : "unit ledger vs general ledger"} />
-        <GlassStat label="Investors" value={count(investors)} icon={<Users size={17} />} tone="primary" emphasis={false} hint="on the register" />
+        <GlassStat label="Investors" value={summary.error ? "—" : summary.loading ? "…" : (summary.data?.investors?.total ?? 0).toLocaleString()} icon={<Users size={17} />} tone="primary" emphasis={false} hint="on the register" />
         <GlassStat label="Products" value={count(products)} icon={<Boxes size={17} />} tone="primary" emphasis={false} hint="share classes defined" />
       </StatRail>
 
       {tb.error && <SourceError what="the trial balance" error={tb.error} onRetry={tb.reload} />}
       {recon.error && <SourceError what="reconciliation" error={recon.error} onRetry={recon.reload} />}
-      {investors.error && <SourceError what="investors" error={investors.error} onRetry={investors.reload} />}
+      {summary.error && <SourceError what="the register totals" error={summary.error} onRetry={summary.reload} />}
       {products.error && <SourceError what="products" error={products.error} onRetry={products.reload} />}
 
       {unbalanced.length > 0 && (

@@ -92,6 +92,11 @@ export function label(value: string | null | undefined): string {
   return [words[0].charAt(0).toUpperCase() + words[0].slice(1), ...words.slice(1)].join(" ");
 }
 
+/** "1 account" / "12 accounts" — a count with its noun, thousands-grouped. */
+export function counted(n: number, singular: string, plural = `${singular}s`): string {
+  return `${n.toLocaleString()} ${n === 1 ? singular : plural}`;
+}
+
 export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 
 /* One place for status colours, so a status never reads green on one page

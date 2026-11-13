@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
-import { Button, Field, Input, Modal, PageHeader, SearchInput, Select, useToast } from "../../ui";
-import { tokenConsole } from "../../lib/api";
-import { useAsyncData } from "../../lib/useAsyncData";
-import { dateOf, label } from "../../lib/tokenConsole/format";
+import { Button, Field, FilterBar, Input, Modal, PageHeader, SearchInput, Select, SelectFilter, useToast } from "../../ui";
+import { tokenConsole, tokenConsolePages } from "../../lib/api";
+import { useServerList } from "../../lib/useServerList";
+import { counted, dateOf, label } from "../../lib/tokenConsole/format";
 import type { Investor } from "../../lib/tokenConsole/types.gen";
 import { Code, ConsoleTable, StatusBadge } from "../../components/tokenconsole/ConsoleTable";
 import { InvestorChannelActions } from "../../components/tokenconsole/InvestorChannelActions";
@@ -13,20 +13,27 @@ import { invalidateList, useSharedSource } from "../../lib/tokenConsole/sharedLi
 import { useAction } from "../../lib/tokenConsole/useAction";
 import type { OnboardInvestorRequest } from "../../lib/tokenConsole/types.gen";
 
+const STATUS_OPTIONS: { value: NonNullable<Investor["lifecycleStatus"]>; label: string }[] = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "UNDER_REVIEW", label: "Under review" },
+  { value: "PROSPECT", label: "Prospect" },
+  { value: "SUSPENDED", label: "Suspended" },
+  { value: "OFFBOARDED", label: "Offboarded" },
+];
+
+/** The register runs to hundreds of thousands: the engine searches, filters
+ *  and pages it, newest onboarded first, and this shows one page at a time. */
 export default function TokenConsoleInvestors() {
-  const investors = useAsyncData(tokenConsole.investors);
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const investors = useServerList(
+    ({ page, size, q, filters }) => tokenConsolePages.investors({ q, status: filters.status }, page, size),
+    { q, filters: { status: status === "all" ? [] : [status] } },
+  );
   const [channel, setChannel] = useState<Investor | null>(null);
   const [onboarding, setOnboarding] = useState(false);
   const [open, setOpen] = useState<Investor | null>(null);
   const toast = useToast();
-  const term = q.trim().toLowerCase();
-
-  const rows = useMemo(
-    () => (investors.data ?? []).filter((i) =>
-      !term || (i.displayName ?? "").toLowerCase().includes(term) || (i.externalRef ?? "").toLowerCase().includes(term)),
-    [investors.data, term],
-  );
 
   return (
     <div>
@@ -38,15 +45,21 @@ export default function TokenConsoleInvestors() {
       />
       <ConsoleTable<Investor>
         what="farmers"
-        newest={(r) => r.onboardedAt}
-        source={investors}
-        rows={rows}
+        source={investors.source}
+        paging={investors.paging}
         rowId={(r) => r.investorId}
         onRowClick={(r) => setOpen(r)}
-        actions={<SearchInput value={q} onChange={setQ} placeholder="Name or reference…" className="w-64" />}
         title="Register"
-        description={investors.data ? `${rows.length} of ${investors.data.length} farmers` : undefined}
-        emptyLabel={term ? "No farmer matches that" : "No farmers on the register yet"}
+        description={investors.rows
+          ? `${counted(investors.total, "farmer")}${investors.filtered ? " match" : ", newest first"}`
+          : undefined}
+        toolbar={
+          <FilterBar className="mb-3">
+            <SearchInput value={q} onChange={setQ} placeholder="Name, reference or farmer id…" className="w-full sm:w-72" />
+            <SelectFilter value={status} onChange={setStatus} options={STATUS_OPTIONS} allLabel="All statuses" />
+          </FilterBar>
+        }
+        emptyLabel={investors.filtered ? "No farmer matches that" : "No farmers on the register yet"}
         columns={[
           { key: "name", header: "Name", render: (r) => <span className="text-text font-medium">{r.displayName ?? "—"}</span> },
           { key: "ref", header: "Reference", render: (r) => <Code>{r.externalRef}</Code> },

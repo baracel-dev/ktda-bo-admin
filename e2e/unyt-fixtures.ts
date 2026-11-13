@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import type * as T from "../src/lib/tokenConsole/types.gen";
-import type { AssetBackingRowActual } from "../src/lib/tokenConsole/spec-deviations";
+import type { AssetBackingRowActual, ConsoleSummary, ContractsSummary } from "../src/lib/tokenConsole/spec-deviations";
 import type { ConfigChange } from "../src/lib/tokenConsole/configChanges";
 import type { BondTerms, MarketQuote } from "../src/lib/tokenConsole/prices";
 import type {
@@ -52,6 +52,19 @@ const contracts: T.InvestorContract[] = [
   { contractId: IDS.fundContract, institutionId: IDS.institution, investorRef: IDS.investor, investorId: IDS.investor, productId: IDS.fundProduct, currency: "KES", contractStatus: "ACTIVE", openedAt: "2026-10-01" },
   { contractId: IDS.loanContract, institutionId: IDS.institution, investorRef: IDS.investor, investorId: IDS.investor, productId: IDS.loanProduct, currency: "KES", contractStatus: "ACTIVE", openedAt: "2026-10-02" },
 ];
+
+/* The engine's aggregate counts (api.tokenConsole: consoleSummary /
+   contractsSummary), so Overview and Loans show a total without reading a whole
+   table. Mirrors the two fixtures above: two investors (1 ACTIVE, 1 UNDER_REVIEW),
+   two products, two contracts (both ACTIVE), one of them the loan. */
+const consoleSummary: ConsoleSummary = {
+  investors: { total: 2, byStatus: { ACTIVE: 1, UNDER_REVIEW: 1 } },
+  products: { total: 2 },
+  contracts: { total: 2, byStatus: { ACTIVE: 2 } },
+  booksByCurrency: [{ currency: "KES", accounts: 2, totalDebit: 250000, totalCredit: 250000 }],
+};
+/** The loan contracts' counts (Loans' stat tiles ask for the loan productId). */
+const contractsSummary: ContractsSummary = { total: 1, byStatus: { ACTIVE: 1, CLOSED: 0 } };
 
 const trialBalance: T.TrialBalanceLine[] = [
   { glAccountId: "GL-1", accountCode: "1000", accountName: "Bank cash", currency: "KES", totalDebit: 250000, totalCredit: 0, balance: 250000 },
@@ -233,7 +246,9 @@ const TOK: [RegExp, Answer][] = [
   [/^\/accounting\/investors$/, { body: investors }],
   [/^\/accounting\/products$/, { body: products }],
   [/^\/accounting\/journals$/, { body: journals }],
-  [/^\/accounting\/contracts$/, { body: contracts }],
+  [/^\/accounting\/contracts$/, { body: contracts, paged: true }],
+  [/^\/accounting\/contracts\/summary$/, { body: contractsSummary }],
+  [/^\/accounting\/console\/summary$/, { body: consoleSummary }],
   [/^\/accounting\/offerings$/, { body: offerings }],
   [/^\/accounting\/trades$/, { body: trades }],
   [/^\/accounting\/assets$/, { body: assets }],
@@ -300,6 +315,8 @@ const OMNI: [RegExp, Answer][] = [
 /** What an object endpoint answers when there is nothing to show; every list answers []. */
 const EMPTY_OBJECTS: [RegExp, unknown][] = [
   [/^\/admin\/config$/, { maxConcurrentSessions: 0 }],
+  [/^\/accounting\/console\/summary$/, { investors: { total: 0, byStatus: {} }, products: { total: 0 }, contracts: { total: 0, byStatus: {} }, booksByCurrency: [] }],
+  [/^\/accounting\/contracts\/summary$/, { total: 0, byStatus: {} }],
   [/^\/farmers\/summary$/, { registered: 0, activated: 0, funded: 0, total: 0, kycPending: 0, kyc: { none: 0, pending: 0, verified: 0, rejected: 0 } }],
 ];
 
@@ -341,7 +358,11 @@ export async function stubUnyt(page: Page, mode: Mode) {
     if (mode === "empty") {
       const obj = EMPTY_OBJECTS.find(([re]) => re.test(path));
       if (obj) return json(route, obj[1]);
-      return isOmni ? paged(route, []) : json(route, []);
+      if (isOmni) return paged(route, []);
+      // A tok list the engine pages must answer with the X-Total-* headers even
+      // when empty, or getPage() throws instead of the page showing its empty state.
+      const tokHit = TOK.find(([re]) => re.test(path));
+      return tokHit?.[1].paged ? paged(route, []) : json(route, []);
     }
     const hit = (isOmni ? OMNI : TOK).find(([re]) => re.test(path));
     if (!hit) return isOmni ? paged(route, []) : json(route, []);

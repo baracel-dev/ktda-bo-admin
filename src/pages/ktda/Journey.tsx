@@ -54,7 +54,7 @@ export default function Journey() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Farmer journey"
         subtitle="Three uploads take a farmer from registered to activated (wallet open) to funded. Walk them in order."
         actions={<Link to="/farmers" className="text-sm font-medium text-primary-600 hover:text-primary-700">Farmers →</Link>}

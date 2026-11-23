@@ -418,7 +418,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
   return (
     <div>
       <PageHeader
-        eyebrow={stepFor(flow) ? `Farmer journey · step ${stepFor(flow)!.n} of ${JOURNEY.length}` : payout ? "KTDA · Payment runs" : "KTDA"}
+        eyebrow={stepFor(flow) ? `Farmer journey · step ${stepFor(flow)!.n} of ${JOURNEY.length}` : payout ? "Nawiri · Payment runs" : "Nawiri"}
         title={copy.title}
         subtitle={copy.subtitle}
         actions={
@@ -458,7 +458,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
               </>
             ) : flow === "PAYMENT" ? (
               <>
-                KTDA&apos;s SAP payment export as it comes (LineNo, GNo, Name, WalletID, Phone, Factory, Centre, Kg, Rate, Gross, deductions, Amount, PayTo), checked here before it is sent.
+                Nawiri&apos;s SAP payment export as it comes (LineNo, GNo, Name, WalletID, Phone, Factory, Centre, Kg, Rate, Gross, deductions, Amount, PayTo), checked here before it is sent.
                 {" "}Or the accounting file with the header <code className="tabular text-text">{BULK_COLUMNS[flow].join(",")}</code>, each amount_kes under KES {MAX_PAYMENT_KES.toLocaleString()}, to 2 decimals.
               </>
             ) : payout ? (
@@ -486,7 +486,7 @@ export default function BulkLoad({ flow }: { flow: BulkFlow }) {
           </Field>
           {file && format === "SAP" && (
             <p className="mt-3 text-[12.5px] text-text-soft" data-testid="sap-picked">
-              <span className="font-medium text-text">{file.name}</span>: KTDA SAP export. {sap.state.kind === "checking" ? "Checking it now…" : sap.state.kind === "done" ? "Checked; the result is below." : sap.state.kind === "error" ? "It could not be checked; see below." : ""}
+              <span className="font-medium text-text">{file.name}</span>: Nawiri SAP export. {sap.state.kind === "checking" ? "Checking it now…" : sap.state.kind === "done" ? "Checked; the result is below." : sap.state.kind === "error" ? "It could not be checked; see below." : ""}
             </p>
           )}
           {file && summary && format !== "SAP" && (

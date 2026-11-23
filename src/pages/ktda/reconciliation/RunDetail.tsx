@@ -115,7 +115,7 @@ export default function ReconciliationRunPage() {
     <div data-testid="run-page">
       {crumb}
       <PageHeader
-        eyebrow="KTDA · Reconciliation"
+        eyebrow="Nawiri · Reconciliation"
         title={run.fileName ?? "Statement"}
         subtitle={[`Period ${periodText(run)}`, `run ${dateTime(run.createdAt)}`, run.runBy && `by ${run.runBy}`].filter(Boolean).join(" · ")}
         actions={exceptions > 0 && (

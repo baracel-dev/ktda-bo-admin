@@ -183,7 +183,7 @@ test("SAP file: checked before upload, sent with its period, submitted by the up
 
   await page.getByLabel("CSV file").setInputFiles(file(NAME, SAP_CSV));
   const check = page.getByTestId("sap-check");
-  await expect(check).toContainText("KTDA SAP export, 11 lines");
+  await expect(check).toContainText("Nawiri SAP export, 11 lines");
   await expect(page.getByTestId("sap-net")).toHaveText("KES 8,950.00");
   await expect(page.getByTestId("sap-expected")).toHaveText("KES 5,000.00");
   await expect(page.getByTestId("sap-expected-count")).toContainText("4 lines");

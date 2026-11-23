@@ -35,7 +35,7 @@ export default function Login() {
 
   return (
     <AuthLayout
-      eyebrow="KTDA Digital Tea Payment Solution"
+      eyebrow="Nawiri Digital Tea Payment Solution"
       title="Back Office"
       description="Onboard farmers, pay their wallets, reconcile the ledger and follow every exception, with two-person control on what moves money."
       bullets={BULLETS}

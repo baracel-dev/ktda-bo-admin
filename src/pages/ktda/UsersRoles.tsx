@@ -92,7 +92,7 @@ export default function UsersRoles() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA · Admin"
+        eyebrow="Nawiri · Admin"
         title="Users & roles"
         subtitle="Who can sign in to this back office, their roles, and what each role may see and do. Sign-in accounts are the engine's; roles and permissions are the staff directory's."
       />

@@ -116,7 +116,7 @@ export function headerFor(line: string): HeaderResult {
     const parts: string[] = [];
     if (missing.length) parts.push(`missing column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`);
     if (duplicates.length) parts.push(`column${duplicates.length === 1 ? "" : "s"} named twice: ${duplicates.join(", ")}`);
-    return { ok: false, message: `This isn't a KTDA payment file (${parts.join("; ")}). The first line must name the columns: ${REQUIRED_LABELS.join(", ")}.`, missing, duplicates };
+    return { ok: false, message: `This isn't a Nawiri payment file (${parts.join("; ")}). The first line must name the columns: ${REQUIRED_LABELS.join(", ")}.`, missing, duplicates };
   }
   return { ok: true, map: { index, columns: cells, extras, deductions: hasParts && hasColumn ? "both" : hasColumn ? "column" : "parts" } };
 }

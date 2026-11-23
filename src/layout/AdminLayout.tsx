@@ -18,12 +18,12 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const badges = useNavBadges();
-  const footerNote = useContentField("regulatory_footer", "text", "KTDA Digital Tea Payment Solution.");
+  const footerNote = useContentField("regulatory_footer", "text", "Nawiri Digital Tea Payment Solution.");
   if (!user) return null;
 
   return (
     <AppShell
-      appName="KTDA"
+      appName="Nawiri"
       appTag="Back Office"
       // The pages this member's permissions open (every page without a directory; lib/auth.tsx).
       nav={navForRole(ALL_PAGES.filter((p) => canAccess(p)), badges)}

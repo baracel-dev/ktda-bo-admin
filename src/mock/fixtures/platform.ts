@@ -121,7 +121,7 @@ export const FLAG_PLATFORM_LABELS: Record<FlagPlatform, { title: string; note?: 
   ifa_portal: { title: "IFA Portal" },
   trustee_portal: { title: "Trustee Portal" },
   payment_ops: { title: "Payment Ops Portal" },
-  bo_admin: { title: "KTDA Back Office" },
+  bo_admin: { title: "Nawiri Back Office" },
 };
 
 export type FeatureFlag = {

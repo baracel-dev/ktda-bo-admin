@@ -128,7 +128,7 @@ export default function Agents() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Agents"
         subtitle="Agents onboard farmers with a camera, upgrade Tier 1 wallets, and handle cash in and cash out."
         actions={!unavailable && manage && <Button onClick={() => setRegistering(true)}><UserPlus size={14} /> Register agent</Button>}

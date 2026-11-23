@@ -106,7 +106,7 @@ export default function TokenConsoleKyc() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="KYC desk"
         subtitle="This institution's farmers by where their KYC stands: not started, to decide, verified or rejected. Open a farmer to see what the population registry said, their photos, and to decide."
       />

@@ -139,7 +139,7 @@ const specs: EntitySpec[] = [
     useList: list("institution", tc.institutions),
     useCreate: create("institution", tc.createInstitution),
     fields: [
-      { key: "name", label: "Name", kind: "text", required: true, placeholder: "KTDA", wide: true },
+      { key: "name", label: "Name", kind: "text", required: true, placeholder: "Nawiri", wide: true },
       { key: "localCurrency", label: "Local currency", kind: "currency", required: true, placeholder: "KES" },
       { key: "country", label: "Country", kind: "text", required: true, placeholder: "KE", uppercase: true },
       { key: "additionalCurrencies", label: "Other currencies", kind: "stringList", placeholder: "USD, EUR", hint: "Comma-separated.", uppercase: true, wide: true },

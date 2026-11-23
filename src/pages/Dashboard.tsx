@@ -27,7 +27,7 @@ function PanelSkeleton({ rows = 4 }: { rows?: number }) {
 
 export default function Dashboard() {
   const { role } = useAuth();
-  const subtitle = useContentField("dashboard", "subtitle", "KTDA Digital Tea Payment Solution");
+  const subtitle = useContentField("dashboard", "subtitle", "Nawiri Digital Tea Payment Solution");
 
   const { data: money, loading: moneyLoading } = useAsyncData(getDashboardMoney);
   const { data: fraud } = useAsyncData(getFraudAlerts);

@@ -83,7 +83,7 @@ export default function FarmersByStage() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Farmers"
         subtitle="This institution's farmers and where each is: registered (still has to onboard), activated (wallet open) or funded."
         actions={

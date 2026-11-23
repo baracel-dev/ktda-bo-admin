@@ -57,7 +57,7 @@ export function SapFileCheck({ check, control, onRetry, onControl, disabled, per
   return (
     <div className="space-y-4" data-testid="sap-check">
       <p className="text-[12.5px] text-text-soft">
-        <span className="font-medium text-text">{name}</span>: KTDA SAP export, {units(result.lines)} line{result.lines === 1 ? "" : "s"} across {units(s.factories.length)} factor{s.factories.length === 1 ? "y" : "ies"}.
+        <span className="font-medium text-text">{name}</span>: Nawiri SAP export, {units(result.lines)} line{result.lines === 1 ? "" : "s"} across {units(s.factories.length)} factor{s.factories.length === 1 ? "y" : "ies"}.
         {" "}Checked in your browser in <span className="tabular" data-testid="sap-check-time">{ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`}</span>{rate ? <> ({units(rate)} lines/s)</> : null}; nothing has been sent yet.
       </p>
 

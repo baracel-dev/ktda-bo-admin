@@ -93,7 +93,7 @@ export default function Merchants() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Merchants"
         subtitle="Agro-dealers and shops where farmers spend. Every merchant is checked against the Business Registration Service before they can take payments."
         actions={!unavailable && mayRegister && <Button onClick={() => setRegistering(true)}><Store size={14} /> Register merchant</Button>}

@@ -16,9 +16,12 @@
 @font-face { font-family: "Open Sauce Sans"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/OpenSauceSans-ExtraBold.woff2") format("woff2"); }
 
 :root {
-  /* brand (placeholder): the wordmark's ink and leaf, read by Brand.tsx */
+  /* brand: the BACK OFFICE line's leaf (Brand.tsx), and the Nawiri
+     wordmark's ink and i-dots on light grounds (brand pack colours) */
   --brand-ink: #0F2A1C;
   --brand-leaf: #237A4A;
+  --brand-wordmark-ink: #24150F;
+  --brand-wordmark-sun: #D98E0C;
 
   /* surfaces */
   --bg: #F4F7F5;
@@ -95,6 +98,9 @@
 .dark {
   --brand-ink: #F2F8F4;
   --brand-leaf: #4FB37A;
+  /* the Nawiri wordmark on dark grounds (nawiri-wordmark-dark.svg) */
+  --brand-wordmark-ink: #FBF6EE;
+  --brand-wordmark-sun: #F7C653;
 
   --bg: #0B1F14;
   --surface: #10291B;

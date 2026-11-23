@@ -41,7 +41,7 @@ export type Institution = {
 
 export const INSTITUTION: Institution = {
   id: "INSTC-KE",
-  name: "KTDA",
+  name: "Nawiri",
   parentInstitutionId: null,
   configParentId: null,
   localCurrency: "KES",
@@ -103,7 +103,7 @@ export type TariffDomainScope = "institution" | "service_package" | "product" | 
 export type TariffDomain = { id: string; name: string; scope: TariffDomainScope };
 
 export const TARIFF_DOMAINS: TariffDomain[] = [
-  { id: "TD-INSTC-DEFAULT", name: "KTDA default", scope: "institution" },
+  { id: "TD-INSTC-DEFAULT", name: "Nawiri default", scope: "institution" },
   { id: "TD-BRF-PKG-KES", name: "BRF retail package — KES", scope: "service_package" },
   { id: "TD-BRF-PKG-USD", name: "BRF retail package — USD", scope: "service_package" },
   { id: "TD-BRF-KES", name: "BRF KES sub-fund", scope: "product" },

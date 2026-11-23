@@ -67,9 +67,9 @@ export default function Reports() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Reports"
-        subtitle="Standard reports you can reshape and export. The data belongs to KTDA; exports carry no vendor lock-in."
+        subtitle="Standard reports you can reshape and export. The data belongs to Nawiri; exports carry no vendor lock-in."
       />
       <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
         <nav aria-label="Reports" data-no-print>
@@ -280,7 +280,7 @@ function ReportBody({ slug, title, data, generatedAt, period, institution, by, p
   // The PDF's title (and the file name a browser suggests for it).
   const print = () => {
     const before = document.title;
-    document.title = `${institution ?? "KTDA"} · ${title} · ${nairobiDateTime(generatedAt)}`;
+    document.title = `${institution ?? "Nawiri"} · ${title} · ${nairobiDateTime(generatedAt)}`;
     window.print();
     document.title = before;
   };

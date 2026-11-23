@@ -9,13 +9,14 @@ import { HIDDEN_PAGES, REMOVED_PAGES } from "../src/lib/hiddenPages";
 const nav = (page: Page) => page.locator("aside").first();
 const menuHrefs = (page: Page) => page.locator("aside a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
 
-test("the sign-in page is KTDA's, with nothing of the source back office", async ({ page }) => {
+test("the sign-in page is Nawiri's, with nothing of the source back office", async ({ page }) => {
   await page.route(/\/tok\//, (route) => json(route, { error: "signed out" }, 401));
   await page.route(/\/omni\//, (route) => json(route, {}, 404));
   await page.goto("/login");
-  await expect(page).toHaveTitle("KTDA Back Office");
-  await expect(page.getByRole("img", { name: "KTDA Back Office" })).toBeVisible();
-  await expect(page.getByText("KTDA Digital Tea Payment Solution")).toBeVisible();
+  await expect(page).toHaveTitle("Nawiri Back Office");
+  await expect(page.getByRole("img", { name: "Nawiri Back Office" })).toBeVisible();
+  await expect(page.getByText("Nawiri Digital Tea Payment Solution")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("KTDA");
   await expect(page.locator("body")).not.toContainText(/Investcent|Investment Bank|Capital Markets Authority/);
 });
 
@@ -23,11 +24,12 @@ test.describe("signed in", () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
     await page.goto("/");
-    await expect(page.getByRole("img", { name: "KTDA Back Office" }).first()).toBeVisible();
+    await expect(page.getByRole("img", { name: "Nawiri Back Office" }).first()).toBeVisible();
   });
 
-  test("the sidebar is KTDA's: no Investcent name or regulator line", async ({ page }) => {
-    await expect(nav(page)).toContainText("KTDA Digital Tea Payment Solution.");
+  test("the sidebar is Nawiri's: no KTDA or Investcent name, no regulator line", async ({ page }) => {
+    await expect(nav(page)).toContainText("Nawiri Digital Tea Payment Solution.");
+    await expect(nav(page)).not.toContainText("KTDA");
     await expect(page.locator("body")).not.toContainText(/Investcent|Capital Markets Authority/);
   });
 

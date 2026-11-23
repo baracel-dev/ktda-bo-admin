@@ -147,7 +147,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <ErrorBoundary appName="KTDA Back Office">
+    <ErrorBoundary appName="Nawiri Back Office">
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>

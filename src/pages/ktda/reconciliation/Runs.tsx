@@ -67,7 +67,7 @@ export default function ReconciliationRuns() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA · Money"
+        eyebrow="Nawiri · Money"
         title="Reconciliation"
         subtitle="Put a channel's statement (M-PESA, Airtel Money, a paybill, agents, a bank) against what this service recorded as paid, and chase where they disagree. Nothing here moves money."
         actions={!unavailable && (

@@ -102,7 +102,7 @@ export default function Approvals() {
   return (
     <div>
       <PageHeader
-        eyebrow="KTDA"
+        eyebrow="Nawiri"
         title="Approvals"
         subtitle="Every change that moves money or loosens a control needs a second person: agents' float top-ups, suspensions and reinstatements, merchants' settlement changes and approvals, and verifying a farmer the registry did not match."
       />

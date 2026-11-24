@@ -26,7 +26,7 @@ export function Button({
         size === "md" && "h-10 px-4 text-sm",
         size === "lg" && "h-12 px-6 text-[15px]",
         variant === "primary" &&
-          "bg-primary-600 text-white shadow-sm hover:bg-primary-700",
+          "bg-primary-600 text-[var(--text-on-primary)] shadow-sm hover:bg-primary-700",
         variant === "secondary" &&
           "bg-surface-sunken text-text hover:bg-border border border-border",
         variant === "outline" &&

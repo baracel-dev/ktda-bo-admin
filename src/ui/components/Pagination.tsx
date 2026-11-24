@@ -73,7 +73,7 @@ export function Pagination({
           ) : (
             <button key={p} type="button" disabled={disabled} onClick={() => onPage(p)}
               aria-label={`Page ${p}`} aria-current={p === current ? "page" : undefined}
-              className={clsx(pageButton, p === current ? "bg-primary-600 font-semibold text-white" : "text-text-soft hover:bg-surface-sunken")}>
+              className={clsx(pageButton, p === current ? "bg-primary-600 font-semibold text-[var(--text-on-primary)]" : "text-text-soft hover:bg-surface-sunken")}>
               {p}
             </button>
           ))}

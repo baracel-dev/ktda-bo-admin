@@ -10,11 +10,11 @@ import clsx from "clsx";
 const LEAF = "var(--brand-leaf)";
 
 /* nawiri-icon.svg, on its 64-unit box. */
-const TILE = "#B3502A";
-const SUN = "#F7C653";
-const ROWS = "#FBF6EE";
+const TILE = "#3532E6";
+const SUN = "#FFD955";
+const ROWS = "#FFFFFF";
 /* nawiri-mark.svg's colours, for the symbol on a white tile. */
-const SUN_ON_PAPER = "#D98E0C";
+const SUN_ON_PAPER = "#C77A00";
 const SUN_PATH =
   "M19 31.2C19 25 23.34 19.81 29.15 18.51L26.01 31.2ZM37.99 31.2 34.85 18.51C40.66 19.81 45 25 45 31.2H37.99ZM28.81 31.2 30.51 18.28C31 18.23 31.5 18.2 32 18.2C32.5 18.2 33 18.23 33.49 18.28L35.19 31.2Z";
 const ROWS_PATH = "M28.44 34H35.56L37.93 52H26.07ZM38.68 34H45.8L55 52H43.13ZM18.2 34H25.32L20.87 52H9Z";
